@@ -1,0 +1,40 @@
+env:
+  type: rec_env
+  params:
+    cold_start: 10
+    max_steps: 100
+    top_k: 20
+
+agent:
+  type: dqn
+  params:
+    lr: 0.001
+    batch_size: 32
+    eps_start: 1.0
+    eps_min: 0.05
+    eps_decay: 0.995
+    gamma: 0.99
+    update_freq: 100
+
+embedder:
+  type: simple_concat
+  params:
+    user_dim: 30
+    content_dim: 5
+
+candidate_generator:
+  type: top_k
+  params:
+    top_k: 10
+
+reward_fn:
+  type: default
+  params: {}
+
+experiment:
+  total_episodes: 500
+  max_recommendations: 6
+  seeds: [0]
+
+replay:
+  capacity: 10000

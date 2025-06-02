@@ -32,7 +32,7 @@ reward_fn:
   params: {}
 
 experiment:
-  total_episodes: 500
+  total_episodes: 10
   max_recommendations: 6
   seeds: [0]
 

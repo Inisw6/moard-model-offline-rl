@@ -8,7 +8,7 @@ import logging
 from components.base import BaseEnv
 from components.registry import register
 from .db_utils import get_users, get_user_logs, get_contents
-from datetime import datetime, timezone  # timezone 추가
+from datetime import datetime, timezone
 
 
 @register("rec_env")

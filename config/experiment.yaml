@@ -2,7 +2,7 @@ env:
   type: rec_env
   params:
     cold_start: 10
-    max_steps: 100
+    max_steps: 500
     top_k: 20
 
 agent:
@@ -32,7 +32,7 @@ reward_fn:
   params: {}
 
 experiment:
-  total_episodes: 10
+  total_episodes: 20
   max_recommendations: 6
   seeds: [0]
 

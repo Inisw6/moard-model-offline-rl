@@ -8,18 +8,29 @@ from typing import List, Dict, Any
 from components.registry import make
 from components.rec_context import RecContextManager, get_recommendation_quota
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-)
-
 
 class ExperimentRunner:
+    """
+    실험 전체 루프를 실행하는 클래스.
+    YAML config를 읽어 각 실험을 seed별로 반복 수행.
+    """
+
     def __init__(self, config_path: str = "config/experiment.yaml") -> None:
+        """
+        ExperimentRunner 객체를 초기화합니다.
+
+        Args:
+            config_path (str): 실험 설정 파일 경로 (YAML)
+        """
         self.cfg: Dict[str, Any] = yaml.safe_load(open(config_path))
 
     def set_seed(self, seed: int) -> None:
+        """
+        전체 환경의 랜덤 시드를 고정합니다.
+
+        Args:
+            seed (int): 사용할 시드 값
+        """
         random.seed(seed)
         np.random.seed(seed)
         torch.manual_seed(seed)
@@ -27,6 +38,12 @@ class ExperimentRunner:
             torch.cuda.manual_seed_all(seed)
 
     def run_single(self, seed: int) -> None:
+        """
+        단일 seed에 대해 실험 에피소드를 수행합니다.
+
+        Args:
+            seed (int): 사용할 시드 값
+        """
         self.set_seed(seed)
         cfg: Dict[str, Any] = self.cfg
 
@@ -57,7 +74,7 @@ class ExperimentRunner:
         max_recs: int = cfg["experiment"]["max_recommendations"]
 
         for ep in range(total_eps):
-            print(f"\n--- Episode {ep+1}/{total_eps} ---")
+            logging.info(f"\n--- Episode {ep+1}/{total_eps} ---")
             state, _ = env.reset()
             done: bool = False
 
@@ -87,21 +104,20 @@ class ExperimentRunner:
                     if cnt == 0:
                         continue
 
-                    cands = cand_dict.get(ctype, [])
+                    cands: List[Any] = cand_dict.get(ctype, [])
                     if not cands:
                         logging.warning(
                             f"    No candidates found for ctype {ctype}. Skipping."
                         )
                         continue
 
-                    cembs = [embedder.embed_content(c) for c in cands]
+                    cembs: List[Any] = [embedder.embed_content(c) for c in cands]
                     if not cembs:
                         logging.warning(
                             f"    No valid candidate embeddings for ctype {ctype}. Skipping."
                         )
                         continue
 
-                    # todo: 상태 갱신 후 새로운 후보 생성
                     for i_rec in range(cnt):
                         logging.info(
                             f"      Recommendation Loop: rec_num={i_rec + 1}/{cnt} for {ctype}, env_step={env.step_count}"
@@ -113,7 +129,7 @@ class ExperimentRunner:
                             )
                             continue
 
-                        selected_content_emb = cembs[idx]
+                        selected_content_emb: Any = cembs[idx]
                         next_state, r, step_done, truncated, info = env.step(
                             (ctype, idx)
                         )
@@ -149,10 +165,16 @@ class ExperimentRunner:
             )
 
     def run_all(self) -> None:
+        """
+        config에 정의된 모든 seed에 대해 실험을 실행합니다.
+        """
         seeds: List[int] = self.cfg["experiment"].get("seeds", [0])
         for s in seeds:
             self.run_single(s)
 
 
 if __name__ == "__main__":
+    """
+    main 엔트리포인트. 실험을 실행합니다.
+    """
     ExperimentRunner().run_all()

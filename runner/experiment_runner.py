@@ -47,6 +47,7 @@ class ExperimentRunner:
         self.set_seed(seed)
         cfg: Dict[str, Any] = self.cfg
 
+        # 1) Embedder / CandidateGenerator / Reward / Context / Env / Agent 초기화
         embedder = make(cfg["embedder"]["type"], **cfg["embedder"]["params"])
         candgen = make(
             cfg["candidate_generator"]["type"], **cfg["candidate_generator"]["params"]
@@ -75,11 +76,16 @@ class ExperimentRunner:
 
         for ep in range(total_eps):
             logging.info(f"\n--- Episode {ep+1}/{total_eps} ---")
-            state, _ = env.reset()
+
+            # todo: query를 정해야 하는데 여기서 종목 하나로 에피소드 끝까지 진행해야함!!!
+            query: str = "종목12 뉴스"
+
+            # 환경 reset: 쿼리를 options에 전달
+            state, _ = env.reset(options={"query": query})
             done: bool = False
 
             while not done:
-                cand_dict: Dict[str, List[Any]] = env.get_candidates("종목12 뉴스")
+                cand_dict: Dict[str, List[Any]] = env.get_candidates()
                 user_pref: Dict[str, float] = embedder.estimate_preference(state)
                 quota: Dict[str, int] = get_recommendation_quota(
                     user_pref, context, max_total=max_recs
@@ -88,6 +94,7 @@ class ExperimentRunner:
                 logging.info(
                     f"  Loop Start: ep={ep + 1}, env_step={env.step_count}, done={done}"
                 )
+                logging.info(f"    Query: {query}")
                 logging.info(f"    State (first 5): {state[:5]}")
                 logging.info(f"    User Pref: {user_pref}")
                 logging.info(f"    Quota: {quota}")
@@ -99,6 +106,7 @@ class ExperimentRunner:
                     done = True
                     continue
 
+                # 콘텐츠 타입별 추천 루프
                 for ctype, cnt in quota.items():
                     logging.info(f"    Content Type Loop: ctype={ctype}, cnt={cnt}")
                     if cnt == 0:
@@ -111,6 +119,7 @@ class ExperimentRunner:
                         )
                         continue
 
+                    # 후보 임베딩 생성
                     cembs: List[Any] = [embedder.embed_content(c) for c in cands]
                     if not cembs:
                         logging.warning(
@@ -118,6 +127,7 @@ class ExperimentRunner:
                         )
                         continue
 
+                    # 해당 타입에서 cnt번 추천 반복
                     for i_rec in range(cnt):
                         logging.info(
                             f"      Recommendation Loop: rec_num={i_rec + 1}/{cnt} for {ctype}, env_step={env.step_count}"
@@ -140,17 +150,20 @@ class ExperimentRunner:
                         )
                         logging.info(f"        Next state (first 5): {next_state[:5]}")
 
-                        next_cand_dict: Dict[str, List[Any]] = env.get_candidates(
-                            "종목12 뉴스"
-                        )
+                        # 다음 후보와 임베딩 미리 준비 (optional)
+                        next_cand_dict: Dict[str, List[Any]] = env.get_candidates()
                         next_cembs: Dict[str, List[Any]] = {
                             t: [embedder.embed_content(c) for c in cs]
                             for t, cs in next_cand_dict.items()
                         }
+
+                        # 에이전트를 위한 replay 저장 및 학습
                         agent.store(
                             state, selected_content_emb, r, next_state, next_cembs, done
                         )
                         agent.learn()
+
+                        # state 업데이트
                         state = next_state
 
                         if done:

@@ -3,7 +3,7 @@ env:
   params:
     cold_start: 10
     max_steps: 500
-    top_k: 20
+    top_k: 6
 
 agent:
   type: dqn
@@ -19,13 +19,19 @@ agent:
 embedder:
   type: simple_concat
   params:
-    user_dim: 30
-    content_dim: 5
+    user_embedder:
+      type: simple_user
+      params:
+        user_dim: 30
+    content_embedder:
+      type: simple_content
+      params:
+        content_dim: 5
 
 candidate_generator:
-  type: top_k
+  type: query
   params:
-    top_k: 10
+    max_count_by_content: 24
 
 reward_fn:
   type: default

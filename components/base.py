@@ -123,8 +123,10 @@ class BaseContentEmbedder(ABC):
 
 class BaseEmbedder(ABC):
     """유저와 콘텐츠 임베더를 조합하는 인터페이스"""
-    
-    def __init__(self, user_embedder: BaseUserEmbedder, content_embedder: BaseContentEmbedder):
+
+    def __init__(
+        self, user_embedder: BaseUserEmbedder, content_embedder: BaseContentEmbedder
+    ):
         self.user_embedder = user_embedder
         self.content_embedder = content_embedder
 

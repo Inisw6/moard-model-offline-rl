@@ -16,7 +16,9 @@ def register(key: str):
 def make(key: str, **kwargs):
     if key not in _REGISTRY:
         available = ", ".join(_REGISTRY.keys())
-        raise KeyError(f"No component registered under '{key}'. Available keys: {available}")
+        raise KeyError(
+            f"No component registered under '{key}'. Available keys: {available}"
+        )
     return _REGISTRY[key](**kwargs)
 
 

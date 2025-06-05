@@ -216,11 +216,37 @@ def get_search_queries() -> pd.DataFrame:
 def get_contents() -> pd.DataFrame:
     """
     contents 테이블에서 모든 데이터를 DataFrame으로 반환합니다.
+    SearchQuery 테이블과 조인하여 search_query 텍스트를 포함합니다.
     """
     db = get_db_session()
     try:
-        query = db.query(Content)
-        df = pd.read_sql(query.statement, db.bind)
+        # Content 모델의 모든 컬럼과 SearchQuery.query 컬럼 (별칭 'search_query_text')을 선택
+        # search_query_id가 없는 Content도 포함시키기 위해 outerjoin 사용
+        query = db.query(
+            Content, SearchQuery.query.label("search_query_text")
+        ).outerjoin(SearchQuery, Content.search_query_id == SearchQuery.id)
+
+        results = query.all()
+
+        if not results:
+            # Content 테이블 스키마와 search_query_text 컬럼을 기반으로 빈 DataFrame 생성
+            content_columns = [c.name for c in Content.__table__.columns]
+            df_columns = content_columns + ["search_query_text"]
+            return pd.DataFrame(columns=df_columns)
+
+        # 결과를 DataFrame으로 변환
+        # 각 Content 객체의 속성과 연관된 search_query_text를 결합
+        # Content 객체의 __dict__를 사용하되, SQLAlchemy 내부 상태(_sa_instance_state)는 제외
+        contents_data = []
+        for row_content, row_search_query_text in results:
+            content_dict = {
+                c.name: getattr(row_content, c.name) for c in Content.__table__.columns
+            }
+            content_dict["search_query_text"] = row_search_query_text
+            contents_data.append(content_dict)
+
+        df = pd.DataFrame(contents_data)
+
     finally:
         db.close()
     return df

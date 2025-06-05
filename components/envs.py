@@ -54,6 +54,7 @@ class RecEnv(gym.Env, BaseEnv):
         self.candidate_generator = candidate_generator
         self.reward_fn = reward_fn
         self.click_prob = click_prob
+        self.current_query = None
 
         self.all_users_df = get_users()
         self.all_user_logs_df = get_user_logs()
@@ -270,6 +271,11 @@ class RecEnv(gym.Env, BaseEnv):
         Returns:
             tuple[np.ndarray, dict]: 초기 상태 벡터, 기타 info.
         """
+        if options and "query" in options:
+            self.current_query = options["query"]
+        else:
+            self.current_query = None
+
         user_initial_data = self._get_user_data_for_embedding(
             self.current_user_original_logs_df, []
         )

@@ -6,6 +6,10 @@ from components.base import BaseUserEmbedder, BaseContentEmbedder, BaseEmbedder
 from components.registry import register, make
 from .db_utils import get_contents
 
+# SBert 
+from sentence_transformers import SentenceTransformer
+import re
+
 
 @register("simple_user")
 class SimpleUserEmbedder(BaseUserEmbedder):
@@ -107,6 +111,106 @@ class SimpleUserEmbedder(BaseUserEmbedder):
         return {
             self.content_types[i]: float(type_prefs[i]) for i in range(len(type_prefs))
         }
+
+@register("sbert_content")
+class SbertContentEmbedder(BaseContentEmbedder):
+    """
+    SBERT 기반으로, 오직 콘텐츠(text)만 임베딩하는 예시.
+    - SBERT 임베딩: 768차원 (모델에 따라 다름)
+    - 최종 content_dim 차원으로 패딩/자르기
+    """
+
+    def __init__(
+        self,
+        content_dim: int = 768,  # SBERT 출력 차원에 맞춰 기본값을 768으로 설정
+        model_name: str = "snunlp/KR-SBERT-V40K-klueNLI-augSTS",
+    ):
+        """
+        Args:
+            content_dim (int): 최종 반환할 벡터 차원.
+                               (SBERT 차원과 동일하거나 더 크게 설정할 수 있음)
+            model_name (str): SBERT 모델 이름
+        """
+        
+        # 1) SBERT 모델 로드 (한 번만)
+        print(f"Loading SBERT model '{model_name}' ...")
+        self.sbert_model = SentenceTransformer(model_name)
+        ## content_dim을 잘못입력했을떄를 대비해서
+        self.pretrained_dim = self.sbert_model.get_sentence_embedding_dimension() 
+
+        # 2) 최종 차원 설정
+        if content_dim == self.pretrained_dim:
+            self.content_dim = content_dim
+        else: 
+            print("[Warning]:yalm에서 content_dim을 잘못입력!")
+
+        # 3) type처리 (concat에서 필요한 content_types)
+        self.all_contents_df = get_contents()
+        if not self.all_contents_df.empty:
+            self.content_types = self.all_contents_df["type"].unique().tolist()
+        else:
+            self.content_types = ["youtube", "blog", "news"]
+
+    
+    def output_dim(self) -> int:
+        """임베딩되는 content 벡터의 차원 반환"""
+        return self.content_dim
+
+    def embed_content(self, content: dict) -> np.ndarray:
+        """
+        Args:
+            content (dict):
+                - "text": SBERT로 임베딩할 문자열 (title + description 행)
+
+        Returns:
+            np.ndarray: (content_dim,) 크기의 float32 벡터
+                [0:pretrained_dim] = SBERT 임베딩 (예: 768)
+                나머지는 0으로 패딩하거나, 자릅니다.
+    """
+    
+        # 1) [전처리단계] SBERT 입력 문자열 가져오기 (title + description) 
+        raw_text = content.get('title', '') + content.get('description', '')
+        raw_text = re.sub(r"<.*?>", "", raw_text)
+
+        # 2) [임베딩단계] SBERT 임베딩 ** 임베딩단계에서는 pretrained_dim으로]
+        if raw_text is None : ## raw_text가 공백일때 -> 0 벡터로 처리
+            sbert_emb = np.zeros(self.pretrained_dim, dtype=np.float32)
+
+        ## [??생각해야할 부분] : title, description이 하나라도 공백일때 ###
+        # elif raw_text.strip() == "":                               #
+        #     sbert_emb =                                            #
+        ## 현재는 그냥 없으면 없는대로, 임베딩 진행. ######################
+
+        else:
+            # SBERT encode (리스트로 넘기고 [0] 으로 꺼낸다)
+            try:
+                sbert_emb = self.sbert_model.encode(
+                    [raw_text],
+                    show_progress_bar=False,
+                    convert_to_numpy=True,
+                    normalize_embeddings=False
+                )[0]  ## sbert_emb = array(768차원벡터, dtype=np.float64)
+                sbert_emb = sbert_emb.astype(np.float32)
+                print(sbert_emb)
+            except Exception as e:
+                ## embeding실패할 경우 -> 0벡터
+                print(f"[Warning] SBERT inference failed: {e}")
+                sbert_emb = np.zeros(self.pretrained_dim, dtype=np.float32)
+
+        # 2) SBERT 임베딩만 사용 
+        vec = sbert_emb  # vec결과는 무조건 pretrained_dim으로
+
+        # content_dim오류처리할거면, 여기서 !!
+        # 3) [**여기는 pretrained_dim이아니라, content_dim으로!! 최종 content_dim에 맞추어 패딩 또는 자르기]
+        if len(vec) < self.content_dim:
+            pad_len = self.content_dim - len(vec)
+            vec = np.pad(vec, (0, pad_len), mode="constant")
+        else:
+            vec = vec[: self.content_dim]
+
+        return vec
+        
+
 
 
 @register("simple_content")
@@ -214,6 +318,8 @@ class SimpleContentEmbedder(BaseContentEmbedder):
                 final_vec = final_vec[: self.content_dim]
 
         return final_vec.astype(np.float32)
+
+
 
 
 @register("simple_concat")

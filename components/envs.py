@@ -9,6 +9,7 @@ from components.base import BaseEnv
 from components.registry import register
 from .db_utils import get_users, get_user_logs, get_contents
 from datetime import datetime, timezone
+from typing import Any
 
 
 @register("rec_env")
@@ -54,6 +55,7 @@ class RecEnv(gym.Env, BaseEnv):
         self.candidate_generator = candidate_generator
         self.reward_fn = reward_fn
         self.click_prob = click_prob
+        self.current_query = None
 
         self.all_users_df = get_users()
         self.all_user_logs_df = get_user_logs()
@@ -270,6 +272,11 @@ class RecEnv(gym.Env, BaseEnv):
         Returns:
             tuple[np.ndarray, dict]: 초기 상태 벡터, 기타 info.
         """
+        if options and "query" in options:
+            self.current_query = options["query"]
+        else:
+            self.current_query = None
+
         user_initial_data = self._get_user_data_for_embedding(
             self.current_user_original_logs_df, []
         )
@@ -294,43 +301,60 @@ class RecEnv(gym.Env, BaseEnv):
                 - info (dict): 기타 정보
         """
         self.step_count += 1
-        cand_dict = self.candidate_generator.get_candidates("종목12 뉴스")
-        selected_content = self._select_content_from_action(cand_dict, action)
 
+        # 1) 현재 사용자 상태(user_state)를 구한다.
+        #    (기존까지 시뮬레이션된 로그를 반영하여 임베딩)
+        user_current_data = self._get_user_data_for_embedding(
+            self.current_user_original_logs_df,
+            self.current_session_simulated_logs,
+        )
+        user_state = self.embedder.embed_user(user_current_data)
+
+        # 2) 후보 생성: 이제 get_candidates(uery) 형태로 호출 -> 추후 추천 시스템을 추가한다면, state로 넘김
+        cand_dict = self.candidate_generator.get_candidates(self.current_query)
+
+        # 3) 액션에 따라 실제 추천 콘텐츠 선택
+        selected_content = self._select_content_from_action(cand_dict, action)
         if selected_content is None:
             logging.warning(f"Invalid action {action}. Candidate not found.")
-            current_data = self._get_user_data_for_embedding(
-                self.current_user_original_logs_df, self.current_session_simulated_logs
-            )
-            state = self.embedder.embed_user(current_data)
-            return state, 0.0, True, False, {}
+            # 선택 실패 시, 현재 상태 다시 리턴하며 바로 에피소드 종료
+            return user_state, 0.0, True, False, {}
 
+        # 4) 시뮬레이션: 클릭/VIEW 이벤트 샘플링
         simulated_event_type = self._sample_event_type()
+
+        # 5) 보상 계산: 추천한 콘텐츠, 이벤트 타입을 보상 함수에 넘김
         reward = self.reward_fn.calculate(
             selected_content, event_type=simulated_event_type
         )
+
+        # 6) 시뮬레이션 로그 생성 및 추가
         new_log_entry = self._create_simulated_log_entry(
             selected_content, simulated_event_type
         )
         self.current_session_simulated_logs.append(new_log_entry)
 
+        # 7) 다음 상태(next_state) 계산: 업데이트된 로그를 반영하여 사용자 임베딩 생성
         user_next_data = self._get_user_data_for_embedding(
-            self.current_user_original_logs_df, self.current_session_simulated_logs
+            self.current_user_original_logs_df,
+            self.current_session_simulated_logs,
         )
         next_state = self.embedder.embed_user(user_next_data)
 
+        # 8) 에피소드 종료 판단
         done = self.step_count >= self.max_steps
+
+        # 9) 컨텍스트 매니저에도 한 스텝 진행 시그널 전달
         self.context.step()
+
+        # 10) 최종 결과 반환
         return next_state, reward, done, False, {}
 
-    def get_candidates(self, query: str) -> dict:
+    def get_candidates(self) -> dict[str, list[Any]]:
         """
-        현 상태에서 추천 후보군을 반환합니다.
-
-        Args:
-            state (np.ndarray): 현 상태 벡터
+        현 상태에서 추천 후보군을 반환합니다.get_candidatesget_candidates
 
         Returns:
-            dict: {콘텐츠 타입: 후보군 리스트}
+            dict[str, list[Any]]: {타입: 후보 콘텐츠 리스트}
         """
-        return self.candidate_generator.get_candidates(query)
+        return self.candidate_generator.get_candidates(self.current_query)

@@ -37,7 +37,7 @@ class RecEnv(gym.Env, BaseEnv):
         Args:
             cold_start (int): 콜드스타트 상태 사용 여부.
             max_steps (int): 에피소드 당 최대 추천 횟수.
-            top_k (int): 각 타입별 후보군 최대 크기.
+            top_k (int): 콘텐츠 추천 수.
             embedder: 사용자/콘텐츠 임베딩 객체.
             candidate_generator: 추천 후보군 생성 객체.
             reward_fn: 보상 함수 객체.
@@ -53,10 +53,10 @@ class RecEnv(gym.Env, BaseEnv):
         self.embedder = embedder
         self.candidate_generator = candidate_generator
         self.reward_fn = reward_fn
-        self.click_prob = click_prob  # 클릭 확률 파라미터 추가
+        self.click_prob = click_prob
 
         self.all_users_df = get_users()
-        self.all_user_logs_df = get_user_logs()  # 모든 사용자의 모든 로그 (초기 로드용)
+        self.all_user_logs_df = get_user_logs()
         self.all_contents_df = get_contents()
 
         self.current_user_id = None
@@ -294,7 +294,7 @@ class RecEnv(gym.Env, BaseEnv):
                 - info (dict): 기타 정보
         """
         self.step_count += 1
-        cand_dict = self.candidate_generator.get_candidates(None)
+        cand_dict = self.candidate_generator.get_candidates("종목12 뉴스")
         selected_content = self._select_content_from_action(cand_dict, action)
 
         if selected_content is None:
@@ -323,7 +323,7 @@ class RecEnv(gym.Env, BaseEnv):
         self.context.step()
         return next_state, reward, done, False, {}
 
-    def get_candidates(self, state: np.ndarray) -> dict:
+    def get_candidates(self, query: str) -> dict:
         """
         현 상태에서 추천 후보군을 반환합니다.
 
@@ -333,4 +333,4 @@ class RecEnv(gym.Env, BaseEnv):
         Returns:
             dict: {콘텐츠 타입: 후보군 리스트}
         """
-        return self.candidate_generator.get_candidates(state)
+        return self.candidate_generator.get_candidates(query)

@@ -79,7 +79,7 @@ class ExperimentRunner:
             done: bool = False
 
             while not done:
-                cand_dict: Dict[str, List[Any]] = env.get_candidates(state)
+                cand_dict: Dict[str, List[Any]] = env.get_candidates("종목12 뉴스")
                 user_pref: Dict[str, float] = embedder.estimate_preference(state)
                 quota: Dict[str, int] = get_recommendation_quota(
                     user_pref, context, max_total=max_recs
@@ -141,7 +141,7 @@ class ExperimentRunner:
                         logging.info(f"        Next state (first 5): {next_state[:5]}")
 
                         next_cand_dict: Dict[str, List[Any]] = env.get_candidates(
-                            next_state
+                            "종목12 뉴스"
                         )
                         next_cembs: Dict[str, List[Any]] = {
                             t: [embedder.embed_content(c) for c in cs]

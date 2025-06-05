@@ -9,6 +9,7 @@ from components.base import BaseEnv
 from components.registry import register
 from .db_utils import get_users, get_user_logs, get_contents
 from datetime import datetime, timezone
+from typing import Any
 
 
 @register("rec_env")
@@ -349,14 +350,11 @@ class RecEnv(gym.Env, BaseEnv):
         # 10) 최종 결과 반환
         return next_state, reward, done, False, {}
 
-    def get_candidates(self, query: str) -> dict:
+    def get_candidates(self) -> dict[str, list[Any]]:
         """
-        현 상태에서 추천 후보군을 반환합니다.
-
-        Args:
-            state (np.ndarray): 현 상태 벡터
+        현 상태에서 추천 후보군을 반환합니다.get_candidatesget_candidates
 
         Returns:
-            dict: {콘텐츠 타입: 후보군 리스트}
+            dict[str, list[Any]]: {타입: 후보 콘텐츠 리스트}
         """
-        return self.candidate_generator.get_candidates(query)
+        return self.candidate_generator.get_candidates(self.current_query)

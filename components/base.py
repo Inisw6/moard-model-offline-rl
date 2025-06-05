@@ -81,22 +81,13 @@ class BaseAgent(ABC):
         raise NotImplementedError
 
 
-class BaseEmbedder(ABC):
+class BaseUserEmbedder(ABC):
     @abstractmethod
     def embed_user(self, user: Dict[str, Any]) -> np.ndarray:
         """
         사용자 정보 딕셔너리를 받아서 user_dim 길이 벡터로 변환.
         예: {"user_info":..., "recent_logs":[...], "current_time":...}
         return: np.ndarray (shape: [user_dim])
-        """
-        raise NotImplementedError
-
-    @abstractmethod
-    def embed_content(self, content: Dict[str, Any]) -> np.ndarray:
-        """
-        콘텐츠 딕셔너리를 받아서 content_dim 길이 벡터로 변환.
-        예: {"id":..., "type":..., "embedding": "[...]", ...}
-        return: np.ndarray (shape: [content_dim])
         """
         raise NotImplementedError
 
@@ -112,6 +103,42 @@ class BaseEmbedder(ABC):
     def output_dim(self) -> int:
         """embed_user가 반환하는 벡터의 차원(user_dim)을 반환."""
         raise NotImplementedError
+
+
+class BaseContentEmbedder(ABC):
+    @abstractmethod
+    def embed_content(self, content: Dict[str, Any]) -> np.ndarray:
+        """
+        콘텐츠 딕셔너리를 받아서 content_dim 길이 벡터로 변환.
+        예: {"id":..., "type":..., "embedding": "[...]", ...}
+        return: np.ndarray (shape: [content_dim])
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def output_dim(self) -> int:
+        """embed_content가 반환하는 벡터의 차원(content_dim)을 반환."""
+        raise NotImplementedError
+
+
+class BaseEmbedder(ABC):
+    """유저와 콘텐츠 임베더를 조합하는 인터페이스"""
+    
+    def __init__(self, user_embedder: BaseUserEmbedder, content_embedder: BaseContentEmbedder):
+        self.user_embedder = user_embedder
+        self.content_embedder = content_embedder
+
+    def embed_user(self, user: Dict[str, Any]) -> np.ndarray:
+        return self.user_embedder.embed_user(user)
+
+    def embed_content(self, content: Dict[str, Any]) -> np.ndarray:
+        return self.content_embedder.embed_content(content)
+
+    def estimate_preference(self, state: np.ndarray) -> Dict[str, float]:
+        return self.user_embedder.estimate_preference(state)
+
+    def output_dim(self) -> int:
+        return self.user_embedder.output_dim()
 
 
 class BaseCandidateGenerator(ABC):

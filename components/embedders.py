@@ -2,26 +2,23 @@ import numpy as np
 import json
 import logging
 
-from components.base import BaseEmbedder
-from components.registry import register
+from components.base import BaseUserEmbedder, BaseContentEmbedder, BaseEmbedder
+from components.registry import register, make
 from .db_utils import get_contents
 
 
-# 추후 분리 및 임베더 연산 관련 개선
-@register("simple_concat")
-class SimpleConcatEmbedder(BaseEmbedder):
+@register("simple_user")
+class SimpleUserEmbedder(BaseUserEmbedder):
     """
-    사용자의 최근 로그/콘텐츠 속성을 단순 연결하여 벡터로 변환하는 임베더.
+    사용자의 최근 로그/콘텐츠 속성을 단순 연결하여 벡터로 변환하는 유저 임베더.
 
     - user 벡터: [평균 ratio, 평균 time, 각 콘텐츠 타입별 비율, (0 padding)] (크기: user_dim)
-    - content 벡터: [사전학습 임베딩, 콘텐츠 타입 원핫, (0 padding)] (크기: content_dim)
     """
 
-    def __init__(self, user_dim: int = 30, content_dim: int = 5):
+    def __init__(self, user_dim: int = 30):
         """
         Args:
-            user_dim (int): 반환할 user 임베딩 벡터 차원 (2+타입수 이상 추천)
-            content_dim (int): 반환할 content 임베딩 벡터 차원 (타입수 이상 필요)
+            user_dim (int): 반환할 user 임베딩 벡터 차원
         """
         self.all_contents_df = get_contents()
         if not self.all_contents_df.empty:
@@ -30,21 +27,6 @@ class SimpleConcatEmbedder(BaseEmbedder):
             self.content_types = ["youtube", "blog", "news"]
         self.num_content_types = len(self.content_types)
         self.type_to_idx_map = {t: i for i, t in enumerate(self.content_types)}
-
-        # content_dim에서 타입 원핫 인코딩 차원 분리
-        self.pretrained_content_embedding_dim = content_dim - self.num_content_types
-        if self.pretrained_content_embedding_dim < 0:
-            logging.warning(
-                "content_dim (%d) is too small for %d content types. "
-                "Setting pretrained_content_embedding_dim to 0. content_dim will be %d.",
-                content_dim,
-                self.num_content_types,
-                self.num_content_types,
-            )
-            self.pretrained_content_embedding_dim = 0
-            self.content_dim = self.num_content_types
-        else:
-            self.content_dim = content_dim
 
         min_user_dim = 2 + self.num_content_types
         if user_dim < min_user_dim:
@@ -107,6 +89,65 @@ class SimpleConcatEmbedder(BaseEmbedder):
         elif len(vec) > self.user_dim:
             vec = vec[: self.user_dim]
         return vec.astype(np.float32)
+
+    def estimate_preference(self, state: np.ndarray) -> dict:
+        """
+        유저 임베딩 벡터에서 콘텐츠 타입별 선호도를 추정.
+
+        Args:
+            state (np.ndarray): (user_dim,)
+                [2:2+N] 영역에 각 타입별 비율/선호도가 저장되어 있음
+
+        Returns:
+            dict: {타입명: 선호도(float)}
+        """
+        if len(state) < 2 + self.num_content_types:
+            return {t: 0.0 for t in self.content_types}
+        type_prefs = state[2 : 2 + self.num_content_types]
+        return {
+            self.content_types[i]: float(type_prefs[i]) for i in range(len(type_prefs))
+        }
+
+
+@register("simple_content")
+class SimpleContentEmbedder(BaseContentEmbedder):
+    """
+    콘텐츠 정보를 단순 연결하여 벡터로 변환하는 콘텐츠 임베더.
+
+    - content 벡터: [사전학습 임베딩, 콘텐츠 타입 원핫, (0 padding)] (크기: content_dim)
+    """
+
+    def __init__(self, content_dim: int = 5):
+        """
+        Args:
+            content_dim (int): 반환할 content 임베딩 벡터 차원 (타입수 이상 필요)
+        """
+        self.all_contents_df = get_contents()
+        if not self.all_contents_df.empty:
+            self.content_types = self.all_contents_df["type"].unique().tolist()
+        else:
+            self.content_types = ["youtube", "blog", "news"]
+        self.num_content_types = len(self.content_types)
+        self.type_to_idx_map = {t: i for i, t in enumerate(self.content_types)}
+
+        # content_dim에서 타입 원핫 인코딩 차원 분리
+        self.pretrained_content_embedding_dim = content_dim - self.num_content_types
+        if self.pretrained_content_embedding_dim < 0:
+            logging.warning(
+                "content_dim (%d) is too small for %d content types. "
+                "Setting pretrained_content_embedding_dim to 0. content_dim will be %d.",
+                content_dim,
+                self.num_content_types,
+                self.num_content_types,
+            )
+            self.pretrained_content_embedding_dim = 0
+            self.content_dim = self.num_content_types
+        else:
+            self.content_dim = content_dim
+
+    def output_dim(self) -> int:
+        """임베딩되는 content 벡터의 차원 반환"""
+        return self.content_dim
 
     def embed_content(self, content: dict) -> np.ndarray:
         """
@@ -174,20 +215,39 @@ class SimpleConcatEmbedder(BaseEmbedder):
 
         return final_vec.astype(np.float32)
 
-    def estimate_preference(self, state: np.ndarray) -> dict:
-        """
-        유저 임베딩 벡터에서 콘텐츠 타입별 선호도를 추정.
 
+@register("simple_concat")
+class SimpleConcatEmbedder(BaseEmbedder):
+    """
+    SimpleUserEmbedder와 SimpleContentEmbedder를 조합한 임베더.
+    """
+
+    def __init__(self, user_embedder: dict, content_embedder: dict):
+        """
         Args:
-            state (np.ndarray): (user_dim,)
-                [2:2+N] 영역에 각 타입별 비율/선호도가 저장되어 있음
-
-        Returns:
-            dict: {타입명: 선호도(float)}
+            user_embedder (dict): 유저 임베더 설정
+                - type: 임베더 타입
+                - params: 임베더 파라미터
+            content_embedder (dict): 콘텐츠 임베더 설정
+                - type: 임베더 타입
+                - params: 임베더 파라미터
         """
-        if len(state) < 2 + self.num_content_types:
-            return {t: 0.0 for t in self.content_types}
-        type_prefs = state[2 : 2 + self.num_content_types]
-        return {
-            self.content_types[i]: float(type_prefs[i]) for i in range(len(type_prefs))
-        }
+        from components.registry import make
+
+        self.user_embedder = make(user_embedder["type"], **user_embedder["params"])
+        self.content_embedder = make(
+            content_embedder["type"], **content_embedder["params"]
+        )
+
+        # content_types는 content_embedder에서 가져옴
+        self.content_types = self.content_embedder.content_types
+        self.num_content_types = len(self.content_types)
+        self.type_to_idx_map = {t: i for i, t in enumerate(self.content_types)}
+
+        # user_dim은 user_embedder에서 가져옴
+        self.user_dim = self.user_embedder.user_dim
+
+        # content_dim은 content_embedder에서 가져옴
+        self.content_dim = self.content_embedder.content_dim
+
+        super().__init__(self.user_embedder, self.content_embedder)

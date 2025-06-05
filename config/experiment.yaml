@@ -19,8 +19,14 @@ agent:
 embedder:
   type: simple_concat
   params:
-    user_dim: 30
-    content_dim: 5
+    user_embedder:
+      type: simple_user
+      params:
+        user_dim: 30
+    content_embedder:
+      type: simple_content
+      params:
+        content_dim: 5
 
 candidate_generator:
   type: query

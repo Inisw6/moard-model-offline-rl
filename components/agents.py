@@ -1,7 +1,9 @@
 import random
-from typing import List, Dict
+import numpy as np
 import torch
 import torch.nn.functional as F
+
+from typing import List, Dict
 from components.base import BaseAgent
 from components.registry import register
 from models.q_network import QNetwork
@@ -113,8 +115,8 @@ class DQNAgent(BaseAgent):
         )
         next_states, next_cands_embs = next_info
 
-        us = torch.FloatTensor(user_states).to(self.device)
-        ce = torch.FloatTensor(content_embs).to(self.device)
+        us = torch.FloatTensor(np.array(user_states)).to(self.device)
+        ce = torch.FloatTensor(np.array(content_embs)).to(self.device)
         rs = torch.FloatTensor(rewards).unsqueeze(1).to(self.device)
         ds = torch.FloatTensor(dones).unsqueeze(1).to(self.device)
 
@@ -131,7 +133,7 @@ class DQNAgent(BaseAgent):
                 continue
             usn = torch.FloatTensor(ns).unsqueeze(0).to(self.device)
             usn_rep = usn.repeat(len(all_embs), 1)
-            cen = torch.FloatTensor(all_embs).to(self.device)
+            cen = torch.FloatTensor(np.array(all_embs)).to(self.device)
             with torch.no_grad():
                 qn = self.target_q_net(usn_rep, cen).squeeze(1)
             max_next_q_list.append(qn.max())

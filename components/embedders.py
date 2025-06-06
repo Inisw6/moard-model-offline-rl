@@ -10,6 +10,9 @@ from .db_utils import get_contents
 from sentence_transformers import SentenceTransformer
 import re
 
+# Doc2vec
+from gensim.models.doc2vec import Doc2Vec
+
 
 @register("simple_user")
 class SimpleUserEmbedder(BaseUserEmbedder):
@@ -115,8 +118,8 @@ class SimpleUserEmbedder(BaseUserEmbedder):
 @register("sbert_content")
 class SbertContentEmbedder(BaseContentEmbedder):
     """
-    SBERT 기반으로, 오직 콘텐츠(text)만 임베딩하는 예시.
-    - SBERT 임베딩: 768차원 (모델에 따라 다름)
+    SBERT 기반으로, 콘텐츠(text)만 임베딩.
+    - SBERT 임베딩: 768차원
     - 최종 content_dim 차원으로 패딩/자르기
     """
 
@@ -127,22 +130,23 @@ class SbertContentEmbedder(BaseContentEmbedder):
     ):
         """
         Args:
-            content_dim (int): 최종 반환할 벡터 차원.
-                               (SBERT 차원과 동일하거나 더 크게 설정할 수 있음)
             model_name (str): SBERT 모델 이름
+            content_dim (int): 반환할 벡터 차원.
         """
         
-        # 1) SBERT 모델 로드 (한 번만)
+        # 1) SBERT 모델 로드 
         print(f"Loading SBERT model '{model_name}' ...")
         self.sbert_model = SentenceTransformer(model_name)
-        ## content_dim을 잘못입력했을떄를 대비해서
         self.pretrained_dim = self.sbert_model.get_sentence_embedding_dimension() 
 
-        # 2) 최종 차원 설정
+        # 2) content_dim 설정
         if content_dim == self.pretrained_dim:
             self.content_dim = content_dim
-        else: 
-            print("[Warning]:yalm에서 content_dim을 잘못입력!")
+        else:
+            # 만약 YAMl에서 잘못된 content_dim을 지정했을 경우 경고
+            print(f"[Warning] 설정된 content_dim ({content_dim})이 Doc2Vec vector_size ({self.pretrained_dim})와 다릅니다. "
+                  f"이 경우, 벡터를 {self.pretrained_dim} 차원으로 맞춉니다.")
+            self.content_dim = content_dim
 
         # 3) type처리 (concat에서 필요한 content_types)
         self.all_contents_df = get_contents()
@@ -160,20 +164,20 @@ class SbertContentEmbedder(BaseContentEmbedder):
         """
         Args:
             content (dict):
-                - "text": SBERT로 임베딩할 문자열 (title + description 행)
+                - "text": 임베딩할 문자열 (title + description 행)
 
         Returns:
             np.ndarray: (content_dim,) 크기의 float32 벡터
-                [0:pretrained_dim] = SBERT 임베딩 (예: 768)
+                [0:pretrained_dim] = SBERT 임베딩 768
                 나머지는 0으로 패딩하거나, 자릅니다.
     """
     
-        # 1) [전처리단계] SBERT 입력 문자열 가져오기 (title + description) 
+        # 1) [전처리단계] 입력 문자열 가져오기 (title + description) 
         raw_text = content.get('title', '') + content.get('description', '')
         raw_text = re.sub(r"<.*?>", "", raw_text)
 
         # 2) [임베딩단계] SBERT 임베딩 ** 임베딩단계에서는 pretrained_dim으로]
-        if raw_text is None : ## raw_text가 공백일때 -> 0 벡터로 처리
+        if raw_text == "" : ## raw_text가 공백일때 -> 0 벡터로 처리
             sbert_emb = np.zeros(self.pretrained_dim, dtype=np.float32)
 
         ## [??생각해야할 부분] : title, description이 하나라도 공백일때 ###
@@ -191,22 +195,21 @@ class SbertContentEmbedder(BaseContentEmbedder):
                     normalize_embeddings=False
                 )[0]  ## sbert_emb = array(768차원벡터, dtype=np.float64)
                 sbert_emb = sbert_emb.astype(np.float32)
-                print(sbert_emb)
             except Exception as e:
                 ## embeding실패할 경우 -> 0벡터
                 print(f"[Warning] SBERT inference failed: {e}")
                 sbert_emb = np.zeros(self.pretrained_dim, dtype=np.float32)
 
-        # 2) SBERT 임베딩만 사용 
+        # 3) [차원 맞추기] 패딩 또는 자르기
+        # content_dim오류처리할거면, 여기서 !!
         vec = sbert_emb  # vec결과는 무조건 pretrained_dim으로
 
-        # content_dim오류처리할거면, 여기서 !!
-        # 3) [**여기는 pretrained_dim이아니라, content_dim으로!! 최종 content_dim에 맞추어 패딩 또는 자르기]
-        if len(vec) < self.content_dim:
-            pad_len = self.content_dim - len(vec)
-            vec = np.pad(vec, (0, pad_len), mode="constant")
-        else:
-            vec = vec[: self.content_dim]
+        # [**여기는 pretrained_dim이아니라, content_dim으로!! 최종 content_dim에 맞추어 패딩 또는 자르기]
+        # if len(vec) < self.content_dim: # 패딩
+        #     pad_len = self.content_dim - len(vec)
+        #     vec = np.pad(vec, (0, pad_len), mode="constant")
+        # else:
+        #     vec = vec[: self.content_dim]
 
         return vec
         

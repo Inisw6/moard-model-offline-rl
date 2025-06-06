@@ -3,10 +3,13 @@ import random
 import numpy as np
 import torch
 import logging
+import os
+from typing import List, Dict, Any, Tuple
+from datetime import datetime
 
-from typing import List, Dict, Any
 from components.registry import make
 from components.rec_context import RecContextManager, get_recommendation_quota
+from components.rec_utils import enforce_type_constraint, compute_all_q_values
 
 
 class ExperimentRunner:
@@ -23,6 +26,26 @@ class ExperimentRunner:
             config_path (str): 실험 설정 파일 경로 (YAML)
         """
         self.cfg: Dict[str, Any] = yaml.safe_load(open(config_path))
+        # self.cfg = self._load_config(config_path)
+        self.result_log_path = self.cfg.get("experiment", {}).get(
+            "result_log_path", "experiment_results.log"
+        )
+        logging.info("ExperimentRunner initialized.")
+
+    # 추후 추가 예정
+    # def _load_config(self, config_path: str) -> Dict[str, Any]:
+    #     try:
+    #         with open(config_path, "r") as f:
+    #             cfg = yaml.safe_load(f)
+    #         if not isinstance(cfg, dict):
+    #             raise ValueError("Config file does not contain a valid dict.")
+    #         return cfg
+    #     except FileNotFoundError:
+    #         logging.error(f"Config file not found: {config_path}")
+    #         raise
+    #     except yaml.YAMLError as e:
+    #         logging.error(f"YAML parsing error: {e}")
+    #         raise
 
     def set_seed(self, seed: int) -> None:
         """
@@ -31,22 +54,19 @@ class ExperimentRunner:
         Args:
             seed (int): 사용할 시드 값
         """
+        os.environ["PYTHONHASHSEED"] = str(seed)
         random.seed(seed)
         np.random.seed(seed)
         torch.manual_seed(seed)
         if torch.cuda.is_available():
             torch.cuda.manual_seed_all(seed)
+        logging.info(f"Random seed set: {seed}")
 
     def run_single(self, seed: int) -> None:
-        """
-        단일 seed에 대해 실험 에피소드를 수행합니다.
-
-        Args:
-            seed (int): 사용할 시드 값
-        """
         self.set_seed(seed)
         cfg: Dict[str, Any] = self.cfg
 
+        # Embedder / CandidateGenerator / Reward / Context / Env / Agent 초기화
         embedder = make(cfg["embedder"]["type"], **cfg["embedder"]["params"])
         candgen = make(
             cfg["candidate_generator"]["type"], **cfg["candidate_generator"]["params"]
@@ -73,96 +93,122 @@ class ExperimentRunner:
         total_eps: int = cfg["experiment"]["total_episodes"]
         max_recs: int = cfg["experiment"]["max_recommendations"]
 
+        episode_metrics = []
+
+        episode_metrics = []
+
         for ep in range(total_eps):
-            logging.info(f"\n--- Episode {ep+1}/{total_eps} ---")
-            state, _ = env.reset()
-            done: bool = False
+            try:
+                logging.info(f"\n--- Episode {ep+1}/{total_eps} (seed={seed}) ---")
+                # 기존처럼 쿼리 하드코딩 (나중에 변경 가능)
+                query: str = "종목12 뉴스"
 
-            while not done:
-                cand_dict: Dict[str, List[Any]] = env.get_candidates("종목12 뉴스")
-                user_pref: Dict[str, float] = embedder.estimate_preference(state)
-                quota: Dict[str, int] = get_recommendation_quota(
-                    user_pref, context, max_total=max_recs
-                )
+                state, _ = env.reset(options={"query": query})
+                done: bool = False
+                total_reward = 0.0
+                rec_count = 0
+                emb_cache: Dict[Any, Any] = {}
 
-                logging.info(
-                    f"  Loop Start: ep={ep + 1}, env_step={env.step_count}, done={done}"
-                )
-                logging.info(f"    State (first 5): {state[:5]}")
-                logging.info(f"    User Pref: {user_pref}")
-                logging.info(f"    Quota: {quota}")
+                while not done:
+                    cand_dict: Dict[str, List[Any]] = env.get_candidates()
+                    for ctype, cands in cand_dict.items():
+                        for cand in cands:
+                            cid = getattr(cand, "id", id(cand))
+                            if cid not in emb_cache:
+                                emb_cache[cid] = embedder.embed_content(cand)
 
-                if not quota or all(v == 0 for v in quota.values()):
-                    logging.warning(
-                        "    Quota is empty or all zeros. Breaking inner loop to prevent infinite loop."
+                    q_values: Dict[str, List[float]] = compute_all_q_values(
+                        state, cand_dict, embedder, agent, emb_cache=emb_cache
                     )
-                    done = True
-                    continue
 
-                for ctype, cnt in quota.items():
-                    logging.info(f"    Content Type Loop: ctype={ctype}, cnt={cnt}")
-                    if cnt == 0:
-                        continue
+                    enforce_list: List[Tuple[str, int]] = enforce_type_constraint(
+                        q_values, top_k=max_recs
+                    )
 
-                    cands: List[Any] = cand_dict.get(ctype, [])
-                    if not cands:
-                        logging.warning(
-                            f"    No candidates found for ctype {ctype}. Skipping."
-                        )
-                        continue
-
-                    cembs: List[Any] = [embedder.embed_content(c) for c in cands]
-                    if not cembs:
-                        logging.warning(
-                            f"    No valid candidate embeddings for ctype {ctype}. Skipping."
-                        )
-                        continue
-
-                    for i_rec in range(cnt):
-                        logging.info(
-                            f"      Recommendation Loop: rec_num={i_rec + 1}/{cnt} for {ctype}, env_step={env.step_count}"
-                        )
-                        idx: int = agent.select_action(state, cembs)
-                        if idx >= len(cembs):
-                            logging.error(
-                                f"    agent.select_action returned invalid index {idx} for {len(cembs)} candidates. Skipping recommendation."
+                    for ctype, idx in enforce_list:
+                        cands = cand_dict.get(ctype, [])
+                        if idx < 0 or idx >= len(cands):
+                            logging.warning(
+                                f"Invalid candidate index {idx} for type '{ctype}'. Skipping."
                             )
                             continue
 
-                        selected_content_emb: Any = cembs[idx]
-                        next_state, r, step_done, truncated, info = env.step(
-                            (ctype, idx)
-                        )
+                        selected = cands[idx]
+                        cid = getattr(selected, "id", id(selected))
+                        selected_emb = emb_cache[cid]
+
+                        step_result = env.step((ctype, idx))
+                        if (
+                            not isinstance(step_result, (tuple, list))
+                            or len(step_result) != 5
+                        ):
+                            raise ValueError(
+                                "env.step must return (next_state, reward, done, truncated, info)"
+                            )
+
+                        next_state, r, step_done, truncated, info = step_result
                         done = step_done or truncated
+                        total_reward += r
+                        rec_count += 1
 
                         logging.info(
-                            f"        env.step returned: reward={r}, step_done={step_done}, truncated={truncated}, final_done={done}"
+                            f"    Recommended: (type={ctype}, idx={idx}) → reward={r}, done={done}"
                         )
-                        logging.info(f"        Next state (first 5): {next_state[:5]}")
 
-                        next_cand_dict: Dict[str, List[Any]] = env.get_candidates(
-                            "종목12 뉴스"
-                        )
+                        next_cand_dict: Dict[str, List[Any]] = env.get_candidates()
                         next_cembs: Dict[str, List[Any]] = {
-                            t: [embedder.embed_content(c) for c in cs]
+                            t: [
+                                emb_cache.get(
+                                    getattr(c, "id", id(c)), embedder.embed_content(c)
+                                )
+                                for c in cs
+                            ]
                             for t, cs in next_cand_dict.items()
                         }
                         agent.store(
-                            state, selected_content_emb, r, next_state, next_cembs, done
+                            state, selected_emb, r, next_state, next_cembs, done
                         )
                         agent.learn()
+
                         state = next_state
 
                         if done:
-                            logging.info(
-                                f"        Episode finished at rec_num={i_rec + 1} for {ctype} due to done/truncated flag."
-                            )
                             break
-                    if done:
-                        break
-            logging.info(
-                f"--- Episode {ep + 1} End. Agent Epsilon: {agent.epsilon:.3f} ---"
-            )
+
+                logging.info(
+                    f"--- Episode {ep+1} End. Agent Epsilon: {getattr(agent, 'epsilon', float('nan')):.3f} ---"
+                )
+                episode_metrics.append(
+                    {
+                        "seed": seed,
+                        "episode": ep + 1,
+                        "query": query,
+                        "total_reward": total_reward,
+                        "recommendations": rec_count,
+                        "datetime": datetime.now().isoformat(),
+                    }
+                )
+            except Exception as e:
+                logging.error(
+                    f"Error in episode {ep+1}, seed {seed}: {e}", exc_info=True
+                )
+
+        self.save_results(episode_metrics)
+
+    def save_results(self, metrics: List[Dict[str, Any]]):
+        import csv
+
+        csv_path = self.result_log_path.replace(".log", ".csv")
+        fieldnames = metrics[0].keys() if metrics else []
+        if not fieldnames:
+            return
+        write_header = not os.path.exists(csv_path)
+        with open(csv_path, "a", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            if write_header:
+                writer.writeheader()
+            for row in metrics:
+                writer.writerow(row)
 
     def run_all(self) -> None:
         """
@@ -170,7 +216,11 @@ class ExperimentRunner:
         """
         seeds: List[int] = self.cfg["experiment"].get("seeds", [0])
         for s in seeds:
-            self.run_single(s)
+            try:
+                self.run_single(s)
+            except Exception as e:
+                logging.error(f"Seed {s} experiment failed: {e}", exc_info=True)
+                continue
 
 
 if __name__ == "__main__":

@@ -41,6 +41,7 @@ experiment:
   total_episodes: 20
   max_recommendations: 6
   seeds: [0]
+  result_log_path: "experiment_results.log"
 
 replay:
   capacity: 10000

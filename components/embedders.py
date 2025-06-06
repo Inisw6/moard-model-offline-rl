@@ -214,6 +214,91 @@ class SbertContentEmbedder(BaseContentEmbedder):
         return vec
         
 
+@register("doc2vec_content")
+class Doc2VecContentEmbedder(BaseContentEmbedder):
+    """
+    Doc2Vec 기반으로, 콘텐츠(text)만 임베딩.
+    - 사전 학습된 Doc2Vec 모델을 불러와서 임베딩 : 300차원
+    - 최종 content_dim 차원으로 패딩/자르기
+    """
+
+    def __init__(
+        self,
+        model_path: str = "models/doc2vec.model",  # train_doc2vec.py에서 저장한 파일 경로
+        content_dim: int = 300,                   # Doc2Vec 벡터 차원 (train 시에 사용한 vector_size와 동일하게)
+    ):
+        """
+        Args:
+            model_path (str): 디스크에 저장된 Doc2Vec 모델 경로
+            content_dim (int): 반환할 벡터 차원 (Doc2Vec vector_size와 맞춰야한다!!)
+        """
+        # 1) Doc2Vec 모델 로드
+        print(f"Loading Doc2Vec model from '{model_path}' ...")
+        self.doc2vec_model = Doc2Vec.load(model_path)
+        self.pretrained_dim = self.doc2vec_model.vector_size  # 300
+
+        # 2) content_dim 설정
+        if content_dim == self.pretrained_dim:
+            self.content_dim = content_dim
+        else:
+            # 만약 YAMl에서 잘못된 content_dim을 지정했을 경우 경고
+            print(f"[Warning] 설정된 content_dim ({content_dim})이 Doc2Vec vector_size ({self.pretrained_dim})와 다릅니다. "
+                  f"이 경우, 벡터를 {self.pretrained_dim} 차원으로 맞춉니다.")
+            self.content_dim = content_dim
+
+        # 3) type처리 (concat에서 필요한 content_types)
+        self.all_contents_df = get_contents()
+        if not self.all_contents_df.empty:
+            self.content_types = self.all_contents_df["type"].unique().tolist()
+        else:
+            self.content_types = ["youtube", "blog", "news"]
+
+    def output_dim(self) -> int:
+        """임베딩되는 content 벡터의 차원 반환"""
+        return self.content_dim
+
+    def embed_content(self, content: dict) -> np.ndarray:
+        """
+        Args:
+            content (dict):
+                - "text": 임베딩할 문자열 (title + description 행)
+
+
+        Returns:
+            np.ndarray: (content_dim,) 크기의 float32 벡터
+            [0:pretrained_dim] = doc2vec 임베딩 300
+            나머지는 0으로 패딩하거나, 자릅니다.
+        """
+        # 1) [전처리단계] 입력 문자열 가져오기 (title + description) 
+        raw_text = content.get("title", "") + " " + content.get("description", "") 
+        raw_text = re.sub(r"<.*?>", "", raw_text).strip()
+
+        # 2-1) [임베딩준비] 토크나이즈 (Doc2Vec은 word 리스트를 입력으로 사용한다.)
+        #   ** 정교한 토크나이징(konlpy, nltk)을 사용해도된다.
+        if raw_text == "":
+            tokens = []
+        else:
+            tokens = raw_text.split()
+
+        # 2-2) [임베딩단계] Doc2Vec inference: vector을 추론
+        try:
+            inferred_vec = self.doc2vec_model.infer_vector(tokens)
+            doc2vec_emb = np.array(inferred_vec, dtype=np.float32)  # pretrained_dim크기
+        except Exception as e:
+            print(f"[Warning] Doc2Vec inference failed: {e}")
+            doc2vec_emb = np.zeros(self.pretrained_dim, dtype=np.float32)
+
+        # 3) [차원맞추기] 
+        vec = doc2vec_emb
+        # [**여기는 pretrained_dim이아니라, content_dim으로!! 최종 content_dim에 맞추어 패딩 또는 자르기]
+        # if len(vec) < self.content_dim: # 패딩
+        #     pad_len = self.content_dim - len(vec)
+        #     vec = np.pad(vec, (0, pad_len), mode="constant")
+        # else:
+        #     vec = vec[: self.content_dim]
+
+        return vec
+
 
 
 @register("simple_content")

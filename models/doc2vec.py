@@ -1,12 +1,14 @@
 import re
 import os
 import logging
+import pandas as pd
 from typing import List
 
-import pandas as pd
+from components.db_utils import get_contents
+
 from gensim.models.doc2vec import Doc2Vec, TaggedDocument
 
-from components.db_utils import get_contents
+# 추후 성능 최적화: 병렬처리 및 메모리 관리 필요
 
 
 def preprocess_text(text: str) -> List[str]:

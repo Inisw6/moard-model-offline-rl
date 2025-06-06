@@ -19,6 +19,7 @@ moard-model/
 │   ├── agents.py              # DQN 에이전트 구현
 │   ├── envs.py                # 추천 환경 구현
 │   ├── embedders.py           # 임베딩 모듈
+│   ├── rec_utils.py # 후처리 로직 및 Q값 계산 도우미
 │   ├── rec_context.py         # 추천 컨텍스트 관리
 │   ├── registry.py            # 컴포넌트 레지스트리
 │   ├── rewards.py             # 보상 함수 구현
@@ -46,10 +47,12 @@ moard-model/
 
 ## 주요 기능
 
-- 강화학습 기반 추천 시스템 구현
+- QueryAwareCandidateGenerator: 쿼리(keyword) 기반 후보 생성
 - DQN 에이전트를 통한 최적 추천 전략 학습
-- 사용자-아이템 상호작용 환경 시뮬레이션
-- 실험 설정 및 결과 관리
+- 추천 리스트 다양성 보장(타입별 최소 1개) 후처리 로직
+- 보상 함수를 통한 추천 품질 평가 (클릭 + 체류시간 기반 가중 보상)
+- 콜드 스타트 상황 처리
+- 최대 스텝 수 제한
 
 ## 설치 방법
 

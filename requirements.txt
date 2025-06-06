@@ -18,3 +18,7 @@ sympy==1.14.0
 torch==2.7.0
 typing_extensions==4.13.2
 tzdata==2025.2
+sqlalchemy
+sentence-transformers
+gensim==4.3.2
+scipy==1.9.3        ## numpy-1.25.2

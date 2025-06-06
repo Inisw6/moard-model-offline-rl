@@ -101,7 +101,7 @@ class ExperimentRunner:
             try:
                 logging.info(f"\n--- Episode {ep+1}/{total_eps} (seed={seed}) ---")
                 # 기존처럼 쿼리 하드코딩 (나중에 변경 가능)
-                query: str = "종목12 뉴스"
+                query: str = "삼성전자"
 
                 state, _ = env.reset(options={"query": query})
                 done: bool = False

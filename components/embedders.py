@@ -5,6 +5,7 @@ import logging
 from components.base import BaseUserEmbedder, BaseContentEmbedder, BaseEmbedder
 from components.registry import register, make
 from .db_utils import get_contents
+import logging
 
 # SBert 
 from sentence_transformers import SentenceTransformer
@@ -37,8 +38,8 @@ class SimpleUserEmbedder(BaseUserEmbedder):
 
         min_user_dim = 2 + self.num_content_types
         if user_dim < min_user_dim:
-            print(
-                f"Warning: user_dim ({user_dim}) is too small. Adjusting to {min_user_dim}..."
+            logging.warning(
+                "user_dim (%d) is too small. Adjusting to %d...", user_dim, min_user_dim
             )
             self.user_dim = min_user_dim
         else:
@@ -135,7 +136,7 @@ class SbertContentEmbedder(BaseContentEmbedder):
         """
         
         # 1) SBERT 모델 로드 
-        print(f"Loading SBERT model '{model_name}' ...")
+        logging.info("Loading SBERT model '%s' ...", model_name)
         self.sbert_model = SentenceTransformer(model_name)
         self.pretrained_dim = self.sbert_model.get_sentence_embedding_dimension() 
 
@@ -143,10 +144,15 @@ class SbertContentEmbedder(BaseContentEmbedder):
         if content_dim == self.pretrained_dim:
             self.content_dim = content_dim
         else:
-            # 만약 YAMl에서 잘못된 content_dim을 지정했을 경우 경고
-            print(f"[Warning] 설정된 content_dim ({content_dim})이 Doc2Vec vector_size ({self.pretrained_dim})와 다릅니다. "
-                  f"이 경우, 벡터를 {self.pretrained_dim} 차원으로 맞춉니다.")
-            self.content_dim = content_dim
+            ## 차원맞추기
+            logging.warning(
+                "설정된 content_dim (%d)이 SBERT pretrained_dim (%d)과 다릅니다. "
+                "이 경우, vector를 pretrained_dim (%d)으로 맞춥니다.",
+                content_dim,
+                self.pretrained_dim,
+                self.pretrained_dim,
+            )
+            self.content_dim = self.pretrained_dim
 
         # 3) type처리 (concat에서 필요한 content_types)
         self.all_contents_df = get_contents()
@@ -176,17 +182,10 @@ class SbertContentEmbedder(BaseContentEmbedder):
         raw_text = content.get('title', '') + content.get('description', '')
         raw_text = re.sub(r"<.*?>", "", raw_text)
 
-        # 2) [임베딩단계] SBERT 임베딩 ** 임베딩단계에서는 pretrained_dim으로]
-        if raw_text == "" : ## raw_text가 공백일때 -> 0 벡터로 처리
+        # 2) [임베딩단계] SBERT 임베딩
+        if raw_text == "" : 
             sbert_emb = np.zeros(self.pretrained_dim, dtype=np.float32)
-
-        ## [??생각해야할 부분] : title, description이 하나라도 공백일때 ###
-        # elif raw_text.strip() == "":                               #
-        #     sbert_emb =                                            #
-        ## 현재는 그냥 없으면 없는대로, 임베딩 진행. ######################
-
         else:
-            # SBERT encode (리스트로 넘기고 [0] 으로 꺼낸다)
             try:
                 sbert_emb = self.sbert_model.encode(
                     [raw_text],
@@ -196,20 +195,9 @@ class SbertContentEmbedder(BaseContentEmbedder):
                 )[0]  ## sbert_emb = array(768차원벡터, dtype=np.float64)
                 sbert_emb = sbert_emb.astype(np.float32)
             except Exception as e:
-                ## embeding실패할 경우 -> 0벡터
-                print(f"[Warning] SBERT inference failed: {e}")
+                logging.warning("SBERT inference failed: %s", e)
                 sbert_emb = np.zeros(self.pretrained_dim, dtype=np.float32)
-
-        # 3) [차원 맞추기] 패딩 또는 자르기
-        # content_dim오류처리할거면, 여기서 !!
-        vec = sbert_emb  # vec결과는 무조건 pretrained_dim으로
-
-        # [**여기는 pretrained_dim이아니라, content_dim으로!! 최종 content_dim에 맞추어 패딩 또는 자르기]
-        # if len(vec) < self.content_dim: # 패딩
-        #     pad_len = self.content_dim - len(vec)
-        #     vec = np.pad(vec, (0, pad_len), mode="constant")
-        # else:
-        #     vec = vec[: self.content_dim]
+        vec = sbert_emb  
 
         return vec
         
@@ -233,7 +221,7 @@ class Doc2VecContentEmbedder(BaseContentEmbedder):
             content_dim (int): 반환할 벡터 차원 (Doc2Vec vector_size와 맞춰야한다!!)
         """
         # 1) Doc2Vec 모델 로드
-        print(f"Loading Doc2Vec model from '{model_path}' ...")
+        logging.info("Loading Doc2Vec model from '%s' ...", model_path)
         self.doc2vec_model = Doc2Vec.load(model_path)
         self.pretrained_dim = self.doc2vec_model.vector_size  # 300
 
@@ -242,9 +230,14 @@ class Doc2VecContentEmbedder(BaseContentEmbedder):
             self.content_dim = content_dim
         else:
             # 만약 YAMl에서 잘못된 content_dim을 지정했을 경우 경고
-            print(f"[Warning] 설정된 content_dim ({content_dim})이 Doc2Vec vector_size ({self.pretrained_dim})와 다릅니다. "
-                  f"이 경우, 벡터를 {self.pretrained_dim} 차원으로 맞춉니다.")
-            self.content_dim = content_dim
+            logging.warning(
+                "설정된 content_dim (%d)이 Doc2Vec vector_size (%d)와 다릅니다. "
+                "이 경우, vector를 pretrained_dim (%d)으로 맞춥니다.",
+                content_dim,
+                self.pretrained_dim,
+                self.pretrained_dim,
+            )
+            self.content_dim = self.pretrained_dim
 
         # 3) type처리 (concat에서 필요한 content_types)
         self.all_contents_df = get_contents()
@@ -285,18 +278,10 @@ class Doc2VecContentEmbedder(BaseContentEmbedder):
             inferred_vec = self.doc2vec_model.infer_vector(tokens)
             doc2vec_emb = np.array(inferred_vec, dtype=np.float32)  # pretrained_dim크기
         except Exception as e:
-            print(f"[Warning] Doc2Vec inference failed: {e}")
+            logging.warning("Doc2Vec inference failed: %s", e)
             doc2vec_emb = np.zeros(self.pretrained_dim, dtype=np.float32)
 
-        # 3) [차원맞추기] 
         vec = doc2vec_emb
-        # [**여기는 pretrained_dim이아니라, content_dim으로!! 최종 content_dim에 맞추어 패딩 또는 자르기]
-        # if len(vec) < self.content_dim: # 패딩
-        #     pad_len = self.content_dim - len(vec)
-        #     vec = np.pad(vec, (0, pad_len), mode="constant")
-        # else:
-        #     vec = vec[: self.content_dim]
-
         return vec
 
 

@@ -1,5 +1,5 @@
 import numpy as np
-from typing import List, Tuple, Dict, Any
+from typing import List, Tuple, Dict, Any, Optional
 
 
 def enforce_type_constraint(
@@ -66,7 +66,11 @@ def enforce_type_constraint(
 
 
 def compute_all_q_values(
-    state: Any, cand_dict: Dict[str, List[Dict[str, Any]]], embedder: Any, agent: Any
+    state: Any,
+    cand_dict: Dict[str, List[Dict[str, Any]]],
+    embedder: Any,
+    agent: Any,
+    emb_cache: Optional[Dict[Any, Any]] = None,
 ) -> Dict[str, List[float]]:
     """
     현재 상태(state)와 후보 딕셔너리(cand_dict)를 받아,
@@ -82,6 +86,7 @@ def compute_all_q_values(
         }
         embedder: 콘텐츠 임베딩을 생성하는 객체 (embedder.embed_content 메서드 사용)
         agent: Q-network가 포함된 에이전트 (agent.q_net 호출)
+        emb_cache: (Optional) 콘텐츠 임베딩 캐시 (content_id → embedding)
 
     Returns:
         {
@@ -91,26 +96,30 @@ def compute_all_q_values(
             ...
         }
     """
+    import torch
+
     q_values: Dict[str, List[float]] = {}
-    # 모든 후보 타입별로 반복
     for ctype, contents in cand_dict.items():
-        # 1) 각 콘텐츠 임베딩 리스트 생성
-        content_embs = [embedder.embed_content(c) for c in contents]  # List[np.ndarray]
+        content_embs = []
+        for c in contents:
+            # 각 콘텐츠마다 캐시 우선 조회
+            cid = getattr(c, "id", id(c))
+            if emb_cache is not None and cid in emb_cache:
+                content_emb = emb_cache[cid]
+            else:
+                content_emb = embedder.embed_content(c)
+                if emb_cache is not None:
+                    emb_cache[cid] = content_emb
+            content_embs.append(content_emb)
         if not content_embs:
             q_values[ctype] = []
             continue
-        # 2) 배치 형태로 Q-network 호출
-        #    - state 벡터를 각 콘텐츠 수만큼 반복 복제
-        import torch
 
-        us = torch.FloatTensor(state).unsqueeze(0)  # shape: (1, user_dim)
+        us = torch.FloatTensor(state).unsqueeze(0)
         us_rep = us.repeat(len(content_embs), 1).to(agent.device)
-        ce = torch.stack([torch.FloatTensor(e) for e in content_embs]).to(
-            agent.device
-        )  # shape: (N, content_dim)
-
+        ce = torch.stack([torch.FloatTensor(e) for e in content_embs]).to(agent.device)
         with torch.no_grad():
-            q_out = agent.q_net(us_rep, ce).squeeze(1)  # shape: (N,)
+            q_out = agent.q_net(us_rep, ce).squeeze(1)
         q_list = q_out.cpu().numpy().tolist()
         q_values[ctype] = q_list
 

@@ -4,9 +4,10 @@ import numpy as np
 import torch
 import logging
 
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Tuple
 from components.registry import make
 from components.rec_context import RecContextManager, get_recommendation_quota
+from components.rec_utils import enforce_type_constraint, compute_all_q_values
 
 
 class ExperimentRunner:
@@ -38,16 +39,10 @@ class ExperimentRunner:
             torch.cuda.manual_seed_all(seed)
 
     def run_single(self, seed: int) -> None:
-        """
-        단일 seed에 대해 실험 에피소드를 수행합니다.
-
-        Args:
-            seed (int): 사용할 시드 값
-        """
         self.set_seed(seed)
         cfg: Dict[str, Any] = self.cfg
 
-        # 1) Embedder / CandidateGenerator / Reward / Context / Env / Agent 초기화
+        # Embedder / CandidateGenerator / Reward / Context / Env / Agent 초기화
         embedder = make(cfg["embedder"]["type"], **cfg["embedder"]["params"])
         candgen = make(
             cfg["candidate_generator"]["type"], **cfg["candidate_generator"]["params"]
@@ -76,105 +71,70 @@ class ExperimentRunner:
 
         for ep in range(total_eps):
             logging.info(f"\n--- Episode {ep+1}/{total_eps} ---")
-
+            # (A) 쿼리 설정
             # todo: query를 정해야 하는데 여기서 종목 하나로 에피소드 끝까지 진행해야함!!!
             query: str = "종목12 뉴스"
 
-            # 환경 reset: 쿼리를 options에 전달
+            # (B) Env reset: 쿼리를 전달
             state, _ = env.reset(options={"query": query})
             done: bool = False
 
             while not done:
+                # (C) 후보 생성: env 내부에서 current_query를 사용
                 cand_dict: Dict[str, List[Any]] = env.get_candidates()
-                user_pref: Dict[str, float] = embedder.estimate_preference(state)
-                quota: Dict[str, int] = get_recommendation_quota(
-                    user_pref, context, max_total=max_recs
+
+                # (D) 모든 후보에 대해 Q값 계산
+                q_values: Dict[str, List[float]] = compute_all_q_values(
+                    state, cand_dict, embedder, agent
                 )
 
-                logging.info(
-                    f"  Loop Start: ep={ep + 1}, env_step={env.step_count}, done={done}"
+                # (E) 후처리: 타입별 최소 1개를 보장하여 최종 (ctype, idx) 리스트 생성
+                enforce_list: List[Tuple[str, int]] = enforce_type_constraint(
+                    q_values, top_k=max_recs
                 )
-                logging.info(f"    Query: {query}")
-                logging.info(f"    State (first 5): {state[:5]}")
-                logging.info(f"    User Pref: {user_pref}")
-                logging.info(f"    Quota: {quota}")
 
-                if not quota or all(v == 0 for v in quota.values()):
-                    logging.warning(
-                        "    Quota is empty or all zeros. Breaking inner loop to prevent infinite loop."
+                # (F) 최종 추천 리스트 순회하며 env.step 호출
+                for ctype, idx in enforce_list:
+                    # 1) idx가 후보 리스트 범위 내에 있는지 한번 더 체크
+                    cands = cand_dict.get(ctype, [])
+                    if idx < 0 or idx >= len(cands):
+                        logging.warning(
+                            f"Invalid candidate index {idx} for type '{ctype}'. Skipping."
+                        )
+                        continue
+
+                    selected_emb = embedder.embed_content(
+                        cands[idx]
+                    )  # 에이전트 저장용 임베딩
+
+                    # 2) env.step 호출
+                    next_state, r, step_done, truncated, info = env.step((ctype, idx))
+                    done = step_done or truncated
+
+                    logging.info(
+                        f"    Recommended: (type={ctype}, idx={idx}) → reward={r}, done={done}"
                     )
-                    done = True
-                    continue
 
-                # 콘텐츠 타입별 추천 루프
-                for ctype, cnt in quota.items():
-                    logging.info(f"    Content Type Loop: ctype={ctype}, cnt={cnt}")
-                    if cnt == 0:
-                        continue
+                    # 3) 다음 후보 계산(옵션)
+                    next_cand_dict: Dict[str, List[Any]] = env.get_candidates()
 
-                    cands: List[Any] = cand_dict.get(ctype, [])
-                    if not cands:
-                        logging.warning(
-                            f"    No candidates found for ctype {ctype}. Skipping."
-                        )
-                        continue
+                    # 4) 에이전트 리플레이 저장 및 학습
+                    #    next_cembs 형식: {'youtube': [emb0, emb1, ...], ...}
+                    next_cembs: Dict[str, List[Any]] = {
+                        t: [embedder.embed_content(c) for c in cs]
+                        for t, cs in next_cand_dict.items()
+                    }
+                    agent.store(state, selected_emb, r, next_state, next_cembs, done)
+                    agent.learn()
 
-                    # 후보 임베딩 생성
-                    cembs: List[Any] = [embedder.embed_content(c) for c in cands]
-                    if not cembs:
-                        logging.warning(
-                            f"    No valid candidate embeddings for ctype {ctype}. Skipping."
-                        )
-                        continue
+                    # 5) 상태 업데이트
+                    state = next_state
 
-                    # 해당 타입에서 cnt번 추천 반복
-                    for i_rec in range(cnt):
-                        logging.info(
-                            f"      Recommendation Loop: rec_num={i_rec + 1}/{cnt} for {ctype}, env_step={env.step_count}"
-                        )
-                        idx: int = agent.select_action(state, cembs)
-                        if idx >= len(cembs):
-                            logging.error(
-                                f"    agent.select_action returned invalid index {idx} for {len(cembs)} candidates. Skipping recommendation."
-                            )
-                            continue
-
-                        selected_content_emb: Any = cembs[idx]
-                        next_state, r, step_done, truncated, info = env.step(
-                            (ctype, idx)
-                        )
-                        done = step_done or truncated
-
-                        logging.info(
-                            f"        env.step returned: reward={r}, step_done={step_done}, truncated={truncated}, final_done={done}"
-                        )
-                        logging.info(f"        Next state (first 5): {next_state[:5]}")
-
-                        # 다음 후보와 임베딩 미리 준비 (optional)
-                        next_cand_dict: Dict[str, List[Any]] = env.get_candidates()
-                        next_cembs: Dict[str, List[Any]] = {
-                            t: [embedder.embed_content(c) for c in cs]
-                            for t, cs in next_cand_dict.items()
-                        }
-
-                        # 에이전트를 위한 replay 저장 및 학습
-                        agent.store(
-                            state, selected_content_emb, r, next_state, next_cembs, done
-                        )
-                        agent.learn()
-
-                        # state 업데이트
-                        state = next_state
-
-                        if done:
-                            logging.info(
-                                f"        Episode finished at rec_num={i_rec + 1} for {ctype} due to done/truncated flag."
-                            )
-                            break
                     if done:
                         break
+
             logging.info(
-                f"--- Episode {ep + 1} End. Agent Epsilon: {agent.epsilon:.3f} ---"
+                f"--- Episode {ep+1} End. Agent Epsilon: {agent.epsilon:.3f} ---"
             )
 
     def run_all(self) -> None:

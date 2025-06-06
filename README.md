@@ -29,6 +29,7 @@ moard-model/
 │   └── __init__.py
 ├── models/                    # 신경망 모델 구현
 │   ├── q_network.py           # Q-Network 구현
+│   ├── doc2vec.py             # doc2vec 모델 학습 후 생성
 │   └── __pycache__/
 ├── runner/                    # 실험 실행 관리
 │   ├── experiment_runner.py   # 실험 실행 로직

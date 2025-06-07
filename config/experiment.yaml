@@ -3,7 +3,18 @@ env:
   params:
     cold_start: 10
     max_steps: 500
-    top_k: 6
+    top_k: 1
+    # 시뮬레이션 페르소나 설정 (1-100중 선택, null이면 랜덤)
+    persona_id: 5 
+    debug: true    # 페르소나 정보 출력 여부
+
+# LLM 시뮬레이터 설정
+llm_simulator:
+  type: ollama  # random -> ollama로 다시 변경
+  params:
+    ollama_url: "http://localhost:11434"  # Ollama 서버 주소
+    model: "llama3.2:2b"                  # 1b -> 2b로 변경 (더 안정적)
+    debug: true                           # false -> true로 변경 (프롬프트 확인)
 
 agent:
   type: dqn
@@ -31,15 +42,15 @@ embedder:
 candidate_generator:
   type: query
   params:
-    max_count_by_content: 24
+    max_count_by_content: 3
 
 reward_fn:
   type: default
   params: {}
 
 experiment:
-  total_episodes: 20
-  max_recommendations: 6
+  total_episodes: 1
+  max_recommendations: 1
   seeds: [0]
   result_log_path: "experiment_results.log"
 

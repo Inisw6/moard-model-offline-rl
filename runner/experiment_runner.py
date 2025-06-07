@@ -66,7 +66,7 @@ class ExperimentRunner:
         self.set_seed(seed)
         cfg: Dict[str, Any] = self.cfg
 
-        # Embedder / CandidateGenerator / Reward / Context / Env / Agent 초기화
+        # Embedder / CandidateGenerator / Reward / Context 초기화
         embedder = make(cfg["embedder"]["type"], **cfg["embedder"]["params"])
         candgen = make(
             cfg["candidate_generator"]["type"], **cfg["candidate_generator"]["params"]
@@ -74,6 +74,11 @@ class ExperimentRunner:
         reward_fn = make(cfg["reward_fn"]["type"], **cfg["reward_fn"]["params"])
         context = RecContextManager(cfg["env"]["params"]["cold_start"])
 
+        # LLM 시뮬레이터 생성
+        from components.llm_simu import LLMUserSimulator
+        llm_simulator = LLMUserSimulator(**cfg["llm_simulator"]["params"])
+        
+        # 환경 생성 (LLM 시뮬레이터 포함)
         env = make(
             cfg["env"]["type"],
             **cfg["env"]["params"],
@@ -81,7 +86,10 @@ class ExperimentRunner:
             candidate_generator=candgen,
             reward_fn=reward_fn,
             context=context,
+            llm_simulator=llm_simulator,  # LLM 시뮬레이터 전달
         )
+        
+        # 에이전트 생성
         agent = make(
             cfg["agent"]["type"],
             user_dim=embedder.user_dim,

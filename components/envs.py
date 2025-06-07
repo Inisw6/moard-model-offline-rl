@@ -8,6 +8,8 @@ import logging
 from components.base import BaseEnv
 from components.registry import register
 from .db_utils import get_users, get_user_logs, get_contents
+from .llm_simu import LLMUserSimulator
+from .llm_response_handler import LLMResponseHandler
 from datetime import datetime, timezone
 from typing import Any
 
@@ -29,8 +31,10 @@ class RecEnv(gym.Env, BaseEnv):
         candidate_generator,
         reward_fn,
         context,
+        llm_simulator: LLMUserSimulator,  # 필수 인자
         user_id: int | None = None,
-        click_prob: float = 0.2,
+        persona_id: int | None = None,  # 시뮬레이션용 페르소나 ID
+        debug: bool = False,
     ) -> None:
         """
         환경을 초기화합니다.
@@ -43,8 +47,10 @@ class RecEnv(gym.Env, BaseEnv):
             candidate_generator: 추천 후보군 생성 객체.
             reward_fn: 보상 함수 객체.
             context: 추천 컨텍스트 관리자.
+            llm_simulator (LLMUserSimulator): LLM 기반 사용자 시뮬레이터 (필수).
             user_id (int | None): 환경에 할당할 사용자 ID. None이면 임의 선택.
-            click_prob (float): 추천 클릭 확률.
+            persona_id (int | None): 시뮬레이션용 페르소나 ID. None이면 기본값 사용.
+            debug (bool): 디버깅 모드 활성화 여부.
         """
 
         super().__init__()
@@ -54,8 +60,36 @@ class RecEnv(gym.Env, BaseEnv):
         self.embedder = embedder
         self.candidate_generator = candidate_generator
         self.reward_fn = reward_fn
-        self.click_prob = click_prob
+        
+        # LLM 시뮬레이터는 필수로 제공되어야 함
+        if llm_simulator is None:
+            raise ValueError("LLM simulator must be provided")
+        
+        self.llm_simulator = llm_simulator
+        self.response_handler = LLMResponseHandler(debug=debug)
         self.current_query = None
+        
+        # 페르소나 정보 설정
+        from .persona_db import get_persona_db
+        persona_db = get_persona_db()
+        
+        if persona_id is None:
+            # 랜덤 페르소나 선택
+            persona = persona_db.get_random_persona()
+            if debug:
+                print(f"🎲 랜덤 페르소나 선택: ID{persona.persona_id} ({persona.mbti}, 레벨{persona.investment_level})")
+        else:
+            # 지정된 페르소나 사용
+            persona = persona_db.get_persona_by_id(persona_id)
+            if not persona:
+                raise ValueError(f"Persona {persona_id} not found in database")
+            if debug:
+                print(f"🎭 지정 페르소나: ID{persona.persona_id} ({persona.mbti}, 레벨{persona.investment_level})")
+        
+        # 페르소나 속성 저장
+        self.persona_id = persona.persona_id
+        self.persona_mbti = persona.mbti
+        self.persona_investment_level = persona.investment_level
 
         self.all_users_df = get_users()
         self.all_user_logs_df = get_user_logs()
@@ -225,26 +259,81 @@ class RecEnv(gym.Env, BaseEnv):
             return cand_dict[ctype][cand_idx]
         return None
 
-    def _sample_event_type(self) -> str:
+    def _simulate_user_response(self, selected_content: dict, all_candidates: dict) -> tuple[str, int]:
         """
-        클릭 확률(click_prob)에 따라 "VIEW" 또는 "CLICK" 이벤트를 샘플링합니다.
+        LLM 기반으로 사용자 반응을 시뮬레이션합니다.
+
+        Args:
+            selected_content (dict): 추천된 콘텐츠 정보.
+            all_candidates (dict): 전체 후보군 {타입: [콘텐츠, ...]}.
 
         Returns:
-            str: "VIEW" 또는 "CLICK".
+            tuple[str, int]: ("VIEW" 또는 "CLICK", 체류시간(초)).
         """
-        return "CLICK" if random.random() < self.click_prob else "VIEW"
+        if self.llm_simulator is None:
+            # LLM 시뮬레이터가 없으면 기본 확률 기반으로 폴백
+            logging.warning("LLM simulator not available. Falling back to random simulation.")
+            return self.response_handler.create_fallback_response()
+        
+        try:
+            # 전체 후보군을 flat list로 변환
+            all_contents = []
+            for content_type, contents in all_candidates.items():
+                all_contents.extend(contents)
+            
+            logging.debug(f"Sending {len(all_contents)} contents to LLM simulator")
+            
+            # 페르소나 정보 사용
+            persona_id = self.persona_id
+            mbti = self.persona_mbti
+            investment_level = self.persona_investment_level
+            
+            # LLM 시뮬레이터 호출 - 원본 텍스트 반환
+            raw_response = self.llm_simulator.simulate_user_response(
+                persona_id=persona_id,
+                mbti=mbti,
+                investment_level=investment_level,
+                recommended_contents=all_contents,
+                current_context={
+                    "step_count": self.step_count,
+                    "session_logs": self.current_session_simulated_logs,
+                    "selected_content_id": selected_content.get("id"),
+                    "all_candidate_types": list(all_candidates.keys())
+                }
+            )
+            
+            # LLMResponseHandler를 사용하여 응답 처리 (원본 텍스트부터 파싱)
+            return self.response_handler.extract_user_response(
+                llm_raw_text=raw_response,
+                selected_content_id=selected_content.get("id"),
+                total_contents_count=len(all_contents)
+            )
+                
+        except Exception as e:
+            logging.error(f"LLM simulation error: {e}. Falling back to random simulation.")
+            return self.response_handler.create_fallback_response()
 
-    def _create_simulated_log_entry(self, content: dict, event_type: str) -> dict:
+    def _create_simulated_log_entry(self, content: dict, event_type: str, dwell_time: int = None) -> dict:
         """
         시뮬레이션용 로그 엔트리를 생성합니다.
 
         Args:
             content (dict): 추천된 콘텐츠 정보.
             event_type (str): 이벤트 타입 ("VIEW" 또는 "CLICK").
+            dwell_time (int, optional): LLM에서 계산된 체류시간(초). None이면 VIEW는 0, CLICK은 기본값.
 
         Returns:
             dict: user_logs 포맷의 단일 로그 엔트리.
         """
+        # LLM에서 체류시간을 받았으면 사용, 아니면 이벤트 타입에 따라 처리
+        if dwell_time is None:
+            if event_type == "VIEW":
+                time_seconds = 0  # VIEW면 체류시간 0
+            else:  # CLICK
+                time_seconds = random.randint(60, 600)  # CLICK인데 체류시간 없으면 기본값
+        else:
+            time_seconds = dwell_time
+
         return {
             "user_id": self.current_user_id,
             "content_id": content.get("id"),
@@ -252,11 +341,7 @@ class RecEnv(gym.Env, BaseEnv):
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "content_actual_type": content.get("type"),
             "ratio": 1.0 if event_type == "CLICK" else random.uniform(0.1, 0.9),
-            "time": (
-                random.randint(60, 600)
-                if event_type == "CLICK"
-                else random.randint(5, 300)
-            ),
+            "time": time_seconds,
         }
 
     def reset(
@@ -320,17 +405,17 @@ class RecEnv(gym.Env, BaseEnv):
             # 선택 실패 시, 현재 상태 다시 리턴하며 바로 에피소드 종료
             return user_state, 0.0, True, False, {}
 
-        # 4) 시뮬레이션: 클릭/VIEW 이벤트 샘플링
-        simulated_event_type = self._sample_event_type()
+        # 4) 시뮬레이션: LLM 기반 사용자 반응 시뮬레이션 (전체 후보군과 함께)
+        simulated_event_type, simulated_dwell_time = self._simulate_user_response(selected_content, cand_dict)
 
         # 5) 보상 계산: 추천한 콘텐츠, 이벤트 타입을 보상 함수에 넘김
         reward = self.reward_fn.calculate(
             selected_content, event_type=simulated_event_type
         )
 
-        # 6) 시뮬레이션 로그 생성 및 추가
+        # 6) 시뮬레이션 로그 생성 및 추가 (LLM에서 계산된 체류시간 사용)
         new_log_entry = self._create_simulated_log_entry(
-            selected_content, simulated_event_type
+            selected_content, simulated_event_type, simulated_dwell_time
         )
         self.current_session_simulated_logs.append(new_log_entry)
 

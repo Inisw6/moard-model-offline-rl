@@ -451,10 +451,10 @@ class RecEnv(gym.Env, BaseEnv):
                 
                 if clicked_content:
                     event_type = "CLICK"
-        new_log_entry = self._create_simulated_log_entry(
-                        clicked_content, event_type, response["dwell_time"]
-        )
-        self.current_session_simulated_logs.append(new_log_entry)
+                    new_log_entry = self._create_simulated_log_entry(
+                                    clicked_content, event_type, response["dwell_time"]
+                    )
+                    self.current_session_simulated_logs.append(new_log_entry)
 
         # 7) 다음 상태 계산
         user_next_data = self._get_user_data_for_embedding(

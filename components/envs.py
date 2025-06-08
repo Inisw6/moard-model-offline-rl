@@ -445,7 +445,7 @@ class RecEnv(gym.Env, BaseEnv):
                 # 클릭한 콘텐츠 찾기
                 clicked_content = None
                 for content in selected_contents:
-                    if content.get("id") == response["content_id"]:
+                    if content.get("id") == int(response["content_id"]):
                         clicked_content = content
                         break
                 

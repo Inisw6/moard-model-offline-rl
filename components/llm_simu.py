@@ -37,7 +37,7 @@ class LLMUserSimulator:
     def __init__(
         self, 
         ollama_url: str = "http://localhost:11434",
-        model: str = "llama3.2:3b",
+        model: str = "llama3.2:2b",  # 기본값, experiment.yaml에서 오버라이드됨
         debug: bool = False
     ):
         """
@@ -63,7 +63,7 @@ class LLMUserSimulator:
                 "max_tokens": 1000
             }
         }
-    
+
     @property
     def is_available(self) -> bool:
         """Ollama 서버 사용 가능 여부 (지연 초기화)"""
@@ -134,7 +134,7 @@ class LLMUserSimulator:
         return self._ollama_based_simulation(
             persona, recommended_contents, current_context
         )
-    
+
     def _ollama_based_simulation(
         self, 
         persona: PersonaConfig, 
@@ -209,7 +209,8 @@ class LLMUserSimulator:
         
         # 1) 콘텐츠 설명 줄
         content_info_text = "\n".join(
-            f"{info.content_id}: {info.type} - {info.title}" for info in contents_info
+            f"{info.content_id}: {info.type} - {info.title}\n   설명: {info.description}" 
+            for info in contents_info
         )
         
         # 2) 공통 메타값
@@ -260,7 +261,7 @@ class LLMUserSimulator:
 4. JSON 배열 이외 텍스트·마크다운 블록·주석 **절대 출력 금지**.
 """
         return prompt.strip()
-
+    
     def _call_ollama_api(self, prompt: str) -> Dict:
         """Ollama API 호출 (최적화됨)"""
         payload = {

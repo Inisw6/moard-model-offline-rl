@@ -19,7 +19,7 @@ class LLMResponseHandler:
     def extract_user_response(
         self, 
         llm_raw_text: str, 
-        selected_content_id: str,
+        selected_content_id: int,
         total_contents_count: int
     ) -> Tuple[str, int]:
         """
@@ -27,7 +27,7 @@ class LLMResponseHandler:
         
         Args:
             llm_raw_text (str): LLM의 원본 응답 텍스트
-            selected_content_id (str): 추출할 콘텐츠 ID
+            selected_content_id (int): 추출할 콘텐츠 ID
             total_contents_count (int): 전체 콘텐츠 수 (검증용)
             
         Returns:
@@ -114,7 +114,7 @@ class LLMResponseHandler:
     def _extract_content_response(
         self, 
         responses: List[Dict], 
-        target_content_id: str
+        target_content_id: int
     ) -> Tuple[str, int]:
         """특정 콘텐츠에 대한 응답을 추출합니다."""
         
@@ -124,14 +124,14 @@ class LLMResponseHandler:
                     logging.warning(f"Invalid response format at index {i}: {resp}")
                 continue
             
-            content_id = resp.get("content_id")
-            if str(content_id) == str(target_content_id):
+            content_id = int(resp.get("content_id"))
+            if content_id == target_content_id:
                 return self._parse_single_response(resp, target_content_id)
         
         # 해당 콘텐츠에 대한 응답을 찾지 못한 경우
         raise ValueError(f"No response found for content_id: {target_content_id}")
     
-    def _parse_single_response(self, response: Dict, content_id: str) -> Tuple[str, int]:
+    def _parse_single_response(self, response: Dict, content_id: int) -> Tuple[str, int]:
         """단일 응답을 파싱하고 검증합니다."""
         
         # 클릭 여부 추출 및 검증
@@ -198,7 +198,7 @@ class LLMResponseHandler:
             
         Returns:
             List[Dict]: 각 콘텐츠별 반응 정보
-                       [{"content_id": str, "clicked": bool, "dwell_time": int}, ...]
+                       [{"content_id": int, "clicked": bool, "dwell_time": int}, ...]
         """
         try:
             # 1. JSON 파싱
@@ -239,7 +239,7 @@ class LLMResponseHandler:
                     })
                 continue
             
-            content_id = resp.get("content_id")
+            content_id = int(resp.get("content_id"))
             if not content_id:
                 if self.debug:
                     logging.warning(f"Missing content_id in response {i}: {resp}")
@@ -259,7 +259,7 @@ class LLMResponseHandler:
             })
         
         # 누락된 콘텐츠에 대해 기본 응답 추가
-        response_content_ids = {resp["content_id"] for resp in result}
+        response_content_ids = {int(resp["content_id"]) for resp in result}
         for content in all_contents:
             content_id = content.get("id")
             if content_id not in response_content_ids:
@@ -277,7 +277,7 @@ class LLMResponseHandler:
         
         return result
     
-    def _parse_single_response_for_all(self, response: Dict, content_id: str) -> Tuple[bool, int]:
+    def _parse_single_response_for_all(self, response: Dict, content_id: int) -> Tuple[bool, int]:
         """단일 응답을 파싱하여 클릭 여부와 체류시간을 반환합니다."""
         
         # 클릭 여부 추출 및 검증

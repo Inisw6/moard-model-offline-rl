@@ -125,7 +125,7 @@ class LLMResponseHandler:
                 continue
             
             content_id = resp.get("content_id")
-            if content_id == target_content_id:
+            if str(content_id) == str(target_content_id):
                 return self._parse_single_response(resp, target_content_id)
         
         # 해당 콘텐츠에 대한 응답을 찾지 못한 경우

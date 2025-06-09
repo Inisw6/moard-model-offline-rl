@@ -100,9 +100,7 @@ class ExperimentRunner:
 
         total_eps: int = cfg["experiment"]["total_episodes"]
         max_recs: int = cfg["experiment"]["max_recommendations"]
-
-        episode_metrics = []
-
+        
         episode_metrics = []
 
         for ep in range(total_eps):

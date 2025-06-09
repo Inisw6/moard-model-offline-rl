@@ -3,7 +3,7 @@ env:
   params:
     cold_start: 10
     max_steps: 500
-    top_k: 1
+    top_k: 6
     # 시뮬레이션 페르소나 설정 (1-100중 선택, null이면 랜덤)
     persona_id: 5 
     # 페르소나 정보 출력 여부
@@ -44,7 +44,7 @@ embedder:
 candidate_generator:
   type: query
   params:
-    max_count_by_content: 3
+    max_count_by_content: 24
 
 reward_fn:
   type: default
@@ -52,9 +52,9 @@ reward_fn:
 
 experiment:
   total_episodes: 1
-  max_recommendations: 1
+  max_recommendations: 6
   seeds: [0]
-  result_log_path: "experiment_results.log"
+  result_log_path: "./data/experiment_results.log"
 
 replay:
   capacity: 10000

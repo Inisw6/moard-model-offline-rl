@@ -177,7 +177,8 @@ class LLMResponseHandler:
     def _parse_single_response(
         self, response: Dict, content_id: int
     ) -> Tuple[str, int]:
-        """단일 응답을 파싱하고 검증합니다.
+        """
+        단일 응답을 파싱하고 검증합니다.
 
         Args:
             response (Dict): 단일 콘텐츠에 대한 응답 딕셔너리.
@@ -319,7 +320,7 @@ class LLMResponseHandler:
                 continue
 
             content_id = int(resp.get("content_id"))
-            if not content_id:
+            if content_id is not None:
                 if self.debug:
                     logging.warning("Missing content_id in response %d: %s", i, resp)
                 # 순서대로 매칭 시도

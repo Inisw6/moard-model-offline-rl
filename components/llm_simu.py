@@ -38,7 +38,7 @@ class LLMUserSimulator:
     def __init__(
         self,
         ollama_url: str = "http://localhost:11434",
-        model: str = "llama3.2:2b",
+        model: str = "llama3.2:3b",
         debug: bool = False,
     ) -> None:
         """
@@ -107,7 +107,7 @@ class LLMUserSimulator:
             logging.info("Ollama 서버 연결 성공. 모델 '%s' 사용 가능.", self.model)
             return True
 
-        except requests.RequestException as e:
+        except (requests.Timeout, requests.ConnectionError) as e:
             logging.info("Ollama 서버 연결 성공. 모델 '%s' 사용 가능.", self.model)
             return False
 
@@ -170,18 +170,11 @@ class LLMUserSimulator:
         # 프롬프트 생성
         user_prompt = self._build_user_prompt(persona, contents_info, content_ids)
 
-        # 디버깅 출력
-        if self.debug:
-            logging.debug("LLM에게 보내는 프롬프트:\n%s", user_prompt)
-
         # API 호출
         response = self._call_ollama_api(user_prompt)
 
         # 원본 응답 텍스트 반환
         llm_output = response.get("response", "")
-
-        if self.debug:
-            logging.debug("LLM 원본 응답:\n%s\n", llm_output)
 
         return llm_output
 
@@ -255,28 +248,24 @@ class LLMUserSimulator:
 
         # 3) 프롬프트 본문
         prompt = f"""
-        너는 주식 콘텐츠 클릭 시뮬레이터다. 입력 정보에 따른 페르소나를 기반으로 행동해라.
+        ***** JSON만 출력하세요. 다른 텍스트는 절대 금지입니다. *****
 
-        ### 입력 정보
-        - persona_id: {persona_id}
-        - 투자등급(investment_level): {persona.investment_level}
-        - 위험 성향(risk_tolerance): {persona.risk_tolerance:.1f}
-        - 변동성 수용 정도(volatility_tolerance): {persona.volatility_tolerance:.1f}
-        - 배당 선호 정도(dividend_preference): {persona.dividend_preference:.1f}
-        - 결정 속도(decision_speed): {persona.decision_speed:.1f}
-        - 사회적 영향 민감도(social_influence): {persona.social_influence:.1f}
-        - 투자 기간(investment_horizon): {persona.investment_horizon.value}
-        - 분석 선호(analysis_preference): {persona.analysis_preference.value}
-        - 전문가 의존도(expert_reliance): {persona.expert_reliance:.1f}
-        - 채널 가중치: 유튜브 {persona.preferences['youtube']:.1f}, 블로그 {persona.preferences['blog']:.1f}, 뉴스 {persona.preferences['news']:.1f}
+        주식 콘텐츠 클릭 시뮬레이터입니다. 다음 정보를 기반으로 JSON 배열만 반환하세요.
 
-        ### 후보 콘텐츠
+        투자자: {persona_id}
+        투자등급: {persona.investment_level}
+        위험성향: {persona.risk_tolerance:.1f}
+        결정속도: {persona.decision_speed:.1f}
+        채널선호: 유튜브 {persona.preferences['youtube']:.1f}, 블로그 {persona.preferences['blog']:.1f}, 뉴스 {persona.preferences['news']:.1f}
+
+        후보 콘텐츠:
         {content_info_text}
 
-        ### 출력 형식 (**아래 JSON 배열을 그대로, 값만 채워서** 반환) — 다른 글자·공백·백틱·설명 금지
+        ***** 아래 JSON 형식으로만 응답하세요. 설명·주석·마크다운 없이 순수 JSON만! *****
+
         [
         {chr(10).join(
-            f'  {{"content_id": "{cid}", "clicked": true/false, "dwell_time_seconds": 0}}'
+            f'  {{"content_id": "{cid}", "clicked": true/false, "dwell_time_seconds": (int)}}'
             + (',' if i < len(content_ids) - 1 else '')
             for i, cid in enumerate(content_ids)
         )}
@@ -330,7 +319,8 @@ class LLMUserSimulator:
                 f"Ollama API 오류: {response.status_code} - {response.text}"
             )
 
-        return response.json()
+        full_response = response.json()
+        return full_response
 
     def reset_connection_cache(self) -> None:
         """

@@ -1,5 +1,5 @@
 env:
-  type: rec_env
+  type: llm_rec_env
   params:
     cold_start: 10
     max_steps: 500

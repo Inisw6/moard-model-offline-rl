@@ -1,5 +1,6 @@
+from typing import Any, Dict, List, Optional, Tuple
+
 import numpy as np
-from typing import List, Tuple, Dict, Any, Optional
 
 
 def enforce_type_constraint(

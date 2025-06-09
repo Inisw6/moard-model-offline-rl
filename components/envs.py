@@ -1,18 +1,22 @@
+import logging
+import random
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional, Tuple
+
 import gymnasium as gym
 from gymnasium import spaces
 import numpy as np
 import pandas as pd
-import random
-import logging
 
 from components.base import BaseEnv
 from components.registry import register
-from .db_utils import get_users, get_user_logs, get_contents
-from datetime import datetime, timezone
-from typing import Any
+from components.db_utils import get_contents, get_user_logs, get_users
+from components.llm_response_handler import LLMResponseHandler
+from components.llm_simu import LLMUserSimulator
+from components.persona_db import get_persona_db
 
 
-@register("rec_env")
+@register("llm_rec_env")
 class RecEnv(gym.Env, BaseEnv):
     """
     추천 환경(RecEnv).
@@ -29,8 +33,10 @@ class RecEnv(gym.Env, BaseEnv):
         candidate_generator,
         reward_fn,
         context,
-        user_id: int | None = None,
-        click_prob: float = 0.2,
+        llm_simulator: LLMUserSimulator,
+        user_id: Optional[int] = None,
+        persona_id: Optional[int] = None,
+        debug: bool = False,
     ) -> None:
         """
         환경을 초기화합니다.
@@ -43,88 +49,168 @@ class RecEnv(gym.Env, BaseEnv):
             candidate_generator: 추천 후보군 생성 객체.
             reward_fn: 보상 함수 객체.
             context: 추천 컨텍스트 관리자.
-            user_id (int | None): 환경에 할당할 사용자 ID. None이면 임의 선택.
-            click_prob (float): 추천 클릭 확률.
+            llm_simulator (LLMUserSimulator): LLM 기반 사용자 시뮬레이터 (필수).
+            user_id (Optional[int]): 환경에 할당할 사용자 ID. None이면 임의 선택.
+            persona_id (Optional[int]): 시뮬레이션용 페르소나 ID. None이면 랜덤 선택.
+            debug (bool): 디버깅 모드 활성화 여부.
         """
-
         super().__init__()
+        # 인자 없으면 예외 발생
+        assert embedder is not None, "Embedder must be provided"
+        assert candidate_generator is not None, "Candidate generator must be provided"
+        assert reward_fn is not None, "Reward function must be provided"
+        assert context is not None, "Context manager must be provided"
+        assert llm_simulator is not None, "LLM simulator must be provided"
+
+        # 속성 설정
         self.context = context
+        self.cold_start = cold_start
         self.max_steps = max_steps
         self.top_k = top_k
         self.embedder = embedder
         self.candidate_generator = candidate_generator
         self.reward_fn = reward_fn
-        self.click_prob = click_prob
+        self.response_handler = LLMResponseHandler(debug=debug)
         self.current_query = None
+        self.llm_simulator = llm_simulator
+        self.step_count = 0
 
+        # 1) 페르소나 초기화
+        self._init_persona(persona_id, debug)
+
+        # 2) DB에서 DataFrame 로드
+        self._load_dataframes()
+
+        # 3) 사용자 정보 초기화
+        self._init_user(user_id)
+
+        # 4) observation / action space 초기화
+        self._init_spaces()
+
+    def _init_persona(self, persona_id: Optional[int], debug: bool) -> None:
+        """페르소나를 로드하고 속성에 저장합니다.
+
+        Args:
+            persona_id (Optional[int]): 시뮬레이션용 페르소나 ID. None이면 랜덤 선택.
+            debug (bool): 디버그 모드 활성화 여부. True면 선택된 페르소나를 로깅합니다.
+
+        Raises:
+            ValueError: 지정된 persona_id가 DB에 존재하지 않을 때 발생합니다.
+        """
+        persona_db = get_persona_db()
+
+        if persona_id is None:
+            persona = persona_db.get_random_persona()
+            if debug:
+                logging.info(
+                    "랜덤 페르소나 선택: ID%d (%s, 레벨%d)",
+                    persona.persona_id,
+                    persona.mbti,
+                    persona.investment_level,
+                )
+        else:
+            persona = persona_db.get_persona_by_id(persona_id)
+            if not persona:
+                raise ValueError("Persona %d not found in database" % persona_id)
+            if debug:
+                logging.info(
+                    "지정 페르소나: ID%d (%s, 레벨%d)",
+                    persona.persona_id,
+                    persona.mbti,
+                    persona.investment_level,
+                )
+
+        self.persona_id = persona.persona_id
+        self.persona_mbti = persona.mbti
+        self.persona_investment_level = persona.investment_level
+
+    def _load_dataframes(self) -> None:
+        """DB에서 사용자 및 콘텐츠 로그용 DataFrame을 불러와 인스턴스 변수에 저장합니다.
+
+        이 메서드는 반환값이 없으며, 아래 세 가지 DataFrame을 설정합니다:
+          - self.all_users_df
+          - self.all_user_logs_df
+          - self.all_contents_df
+        """
         self.all_users_df = get_users()
         self.all_user_logs_df = get_user_logs()
         self.all_contents_df = get_contents()
 
-        self.current_user_id = None
-        self.current_user_info = None
-        self.current_user_original_logs_df = (
-            pd.DataFrame()
-        )  # 현재 사용자의 DB 로그 (리셋 시 설정)
-        self.current_session_simulated_logs = (
-            []
-        )  # 현재 에피소드에서 시뮬레이션된 로그 [{dict}, ...]
+    def _init_user(self, user_id: Optional[int]) -> None:
+        """현재 에피소드에 사용할 사용자 ID와 사용자 정보를 초기화합니다.
+
+        Args:
+            user_id (Optional[int]): 환경에 할당할 사용자 ID. None일 경우 첫 사용자를 선택하거나 더미 ID(-1)를 사용합니다.
+
+        Side Effects:
+            self.current_user_id: 설정된 사용자 ID
+            self.current_user_info: 해당 ID에 매핑된 사용자 정보(dict)
+            self.current_user_original_logs_df: 빈 DataFrame으로 초기화
+            self.current_session_simulated_logs: 빈 리스트로 초기화
+        """
+        self.current_user_original_logs_df = pd.DataFrame()
+        self.current_session_simulated_logs = []
 
         if user_id is None:
             if not self.all_users_df.empty:
                 self.current_user_id = self.all_users_df.iloc[0]["id"]
             else:
-                self.current_user_id = -1  # 더미 ID
-                logging.warning(
-                    "Warning: No users found in DB. Using dummy user_id = -1."
-                )
+                self.current_user_id = -1
+                logging.warning("No users found in DB. Using dummy user_id = -1.")
         else:
             self.current_user_id = user_id
 
         if self.current_user_id != -1 and not self.all_users_df.empty:
-            user_info_series = self.all_users_df[
-                self.all_users_df["id"] == self.current_user_id
-            ]
-            if not user_info_series.empty:
-                self.current_user_info = user_info_series.iloc[0].to_dict()
+            series = self.all_users_df[self.all_users_df["id"] == self.current_user_id]
+            if not series.empty:
+                self.current_user_info = series.iloc[0].to_dict()
             else:
                 logging.warning(
-                    f"Warning: User ID {self.current_user_id} not found. Using dummy user_info."
+                    "User ID %d not found. Using dummy user_info.", self.current_user_id
                 )
                 self.current_user_info = {
                     "id": self.current_user_id,
                     "uuid": "dummy_user_not_found",
                 }
-        elif self.current_user_id == -1:
+        else:
             self.current_user_info = {"id": -1, "uuid": "dummy_user"}
 
-        state_dim = embedder.output_dim()
+    def _init_spaces(self) -> None:
+        """observation_space와 action_space를 정의합니다.
+
+        observation_space:
+            - Box(low=-inf, high=inf, shape=(state_dim,), dtype=float32)
+        action_space:
+            - Tuple of (Discrete(type_count), Discrete(MAX_CANDIDATE_INDEX)) 반복 self.top_k 회
+
+        Constants:
+            MAX_CANDIDATE_INDEX (int): 후보 인덱스의 최대값 (24)
+        """
+        state_dim = self.embedder.output_dim()
         self._observation_space = spaces.Box(
             low=-np.inf, high=np.inf, shape=(state_dim,), dtype=np.float32
         )
+
+        MAX_CANDIDATE_INDEX = 24
         self._action_space = spaces.Tuple(
-            (
-                spaces.Discrete(len(self.embedder.content_types)),
-                spaces.Discrete(self.top_k),
-            )
+            [
+                spaces.Tuple(
+                    (
+                        spaces.Discrete(len(self.embedder.content_types)),
+                        spaces.Discrete(MAX_CANDIDATE_INDEX),
+                    )
+                )
+                for _ in range(self.top_k)
+            ]
         )
-        self.step_count = 0
 
-    @property
-    def observation_space(self) -> spaces.Box:
-        return self._observation_space
-
-    @property
-    def action_space(self) -> spaces.Tuple:
-        return self._action_space
-
-    def _set_current_user_info(self, user_id: int | None):
+    def _set_current_user_info(self, user_id: Optional[int]) -> None:
         """
         사용자 ID를 기반으로 환경 내 현재 사용자 정보를 설정합니다.
         사용자 정보가 없으면 더미 사용자를 등록합니다.
 
         Args:
-            user_id (int | None): 환경에 할당할 사용자 ID.
+            user_id (Optional[int]): 환경에 할당할 사용자 ID.
         """
         if user_id is None:
             if not self.all_users_df.empty:
@@ -143,7 +229,7 @@ class RecEnv(gym.Env, BaseEnv):
                 self.current_user_info = user_info_series.iloc[0].to_dict()
             else:
                 logging.warning(
-                    f"User ID {self.current_user_id} not found. Using dummy user_info."
+                    "User ID %d not found. Using dummy user_info.", self.current_user_id
                 )
                 self.current_user_info = {
                     "id": self.current_user_id,
@@ -153,7 +239,7 @@ class RecEnv(gym.Env, BaseEnv):
             self.current_user_info = {"id": -1, "uuid": "dummy_user"}
 
     def _merge_logs_with_content_type(
-        self, base_logs_df: pd.DataFrame, simulated_logs_list: list[dict]
+        self, base_logs_df: pd.DataFrame, simulated_logs_list: List[Dict]
     ) -> pd.DataFrame:
         """
         사용자의 실제 로그와 시뮬레이션 로그를 병합한 뒤,
@@ -161,7 +247,7 @@ class RecEnv(gym.Env, BaseEnv):
 
         Args:
             base_logs_df (pd.DataFrame): 원본 사용자 로그.
-            simulated_logs_list (list[dict]): 현재 에피소드의 시뮬레이션 로그 리스트.
+            simulated_logs_list (List[Dict]): 현재 에피소드의 시뮬레이션 로그 리스트.
 
         Returns:
             pd.DataFrame: 콘텐츠 타입 정보가 병합된 전체 로그.
@@ -189,17 +275,17 @@ class RecEnv(gym.Env, BaseEnv):
         return combined_logs_df
 
     def _get_user_data_for_embedding(
-        self, base_logs_df: pd.DataFrame, simulated_logs_list: list[dict]
-    ) -> dict:
+        self, base_logs_df: pd.DataFrame, simulated_logs_list: List[Dict]
+    ) -> Dict:
         """
         사용자 임베딩에 필요한 dict 데이터를 생성합니다.
 
         Args:
             base_logs_df (pd.DataFrame): 원본 사용자 로그.
-            simulated_logs_list (list[dict]): 시뮬레이션 로그 리스트.
+            simulated_logs_list (List[Dict]): 시뮬레이션 로그 리스트.
 
         Returns:
-            dict: embed_user 함수 입력 포맷의 사용자 데이터.
+            Dict: embed_user 함수 입력 포맷의 사용자 데이터.
         """
         logs_df = self._merge_logs_with_content_type(base_logs_df, simulated_logs_list)
         processed_logs = logs_df.to_dict("records") if not logs_df.empty else []
@@ -209,73 +295,190 @@ class RecEnv(gym.Env, BaseEnv):
             "current_time": datetime.now(timezone.utc),
         }
 
-    def _select_content_from_action(self, cand_dict: dict, action: tuple[int, int]):
+    def _select_contents_from_action(
+        self, cand_dict: Dict, action_list: List[Tuple[str, int]]
+    ) -> List[Dict]:
         """
-        액션 정보에서 실제 추천할 콘텐츠를 추출합니다.
+        액션 리스트에서 실제 추천할 콘텐츠들을 추출합니다.
 
         Args:
-            cand_dict (dict): 추천 후보군 {타입: [콘텐츠, ...]}.
-            action (tuple[int, int]): (콘텐츠 타입, 후보 인덱스).
+            cand_dict (Dict): 추천 후보군 {타입: [콘텐츠, ...]}.
+            action_list (List[Tuple[str, int]]): [(콘텐츠 타입, 후보 인덱스), ...] 리스트.
 
         Returns:
-            dict | None: 선택된 콘텐츠, 유효하지 않으면 None.
+            List[Dict]: 선택된 콘텐츠들, 유효하지 않으면 빈 리스트.
         """
-        ctype, cand_idx = action
-        if ctype in cand_dict and len(cand_dict[ctype]) > cand_idx:
-            return cand_dict[ctype][cand_idx]
-        return None
+        selected_contents = []
+        for ctype, cand_idx in action_list:
+            if ctype in cand_dict and len(cand_dict[ctype]) > cand_idx:
+                selected_contents.append(cand_dict[ctype][cand_idx])
+            else:
+                logging.warning(
+                    "Invalid action (%s, %d). Candidate not found.", ctype, cand_idx
+                )
+        return selected_contents
 
-    def _sample_event_type(self) -> str:
+    def _simulate_user_response(self, all_candidates: Dict) -> List[Dict]:
         """
-        클릭 확률(click_prob)에 따라 "VIEW" 또는 "CLICK" 이벤트를 샘플링합니다.
-
-        Returns:
-            str: "VIEW" 또는 "CLICK".
-        """
-        return "CLICK" if random.random() < self.click_prob else "VIEW"
-
-    def _create_simulated_log_entry(self, content: dict, event_type: str) -> dict:
-        """
-        시뮬레이션용 로그 엔트리를 생성합니다.
+        LLM 기반으로 사용자 반응을 시뮬레이션합니다.
 
         Args:
-            content (dict): 추천된 콘텐츠 정보.
-            event_type (str): 이벤트 타입 ("VIEW" 또는 "CLICK").
+            all_candidates (Dict): 전체 후보군 {타입: [콘텐츠, ...]}.
 
         Returns:
-            dict: user_logs 포맷의 단일 로그 엔트리.
+            List[Dict]: 각 후보별 반응 정보 리스트
+                       [{"content_id": str, "clicked": bool, "dwell_time": int}, ...]
         """
+        if self.llm_simulator is None:
+            # LLM 시뮬레이터가 없으면 기본 확률 기반으로 폴백
+            # todo: llm 시뮬레이터는 기본인데 이게 가능한건가?
+            logging.warning(
+                "LLM simulator not available. Falling back to random simulation."
+            )
+            return self._create_fallback_responses(all_candidates)
+
+        try:
+            # 전체 후보군을 flat list로 변환
+            all_contents = [c for contents in all_candidates.values() for c in contents]
+
+            logging.debug("Sending %d contents to LLM simulator", len(all_contents))
+
+            # 페르소나 정보 사용
+            persona_id = self.persona_id
+            mbti = self.persona_mbti
+            investment_level = self.persona_investment_level
+
+            # LLM 시뮬레이터 호출 - 원본 텍스트 반환
+            raw_response = self.llm_simulator.simulate_user_response(
+                persona_id=persona_id,
+                mbti=mbti,
+                investment_level=investment_level,
+                recommended_contents=all_contents,
+                current_context={
+                    "step_count": self.step_count,
+                    "session_logs": self.current_session_simulated_logs,
+                    "all_candidate_types": list(all_candidates.keys()),
+                },
+            )
+
+            # LLMResponseHandler를 사용하여 응답 처리 - 모든 후보에 대한 반응 추출
+            return self.response_handler.extract_all_responses(
+                llm_raw_text=raw_response, all_contents=all_contents
+            )
+
+        except Exception as e:
+            logging.error(
+                f"LLM simulation error: {e}. Falling back to random simulation."
+            )
+            return self._create_fallback_responses(all_candidates)
+
+    def _create_fallback_responses(self, all_candidates: Dict) -> List[Dict]:
+        """
+        LLM 시뮬레이터가 실패했을 때 사용할 폴백(랜덤) 응답을 생성합니다.
+
+        Args:
+            all_candidates (Dict): 전체 추천 후보군 딕셔너리.
+                - 키: 콘텐츠 타입(str 등)
+                - 값: 각 타입별 추천 콘텐츠 리스트(List[Dict])
+
+        Returns:
+            List[Dict]: 각 콘텐츠에 대한 폴백 응답의 리스트.
+                각 응답은 아래 필드를 포함합니다:
+                    - content_id (Any): 콘텐츠의 ID
+                    - clicked (bool): 클릭 여부 (30% 확률)
+                    - dwell_time (int): 체류 시간(초). 클릭 시 60~300 랜덤, 미클릭 시 0
+        """
+        all_contents = []
+        for content_type, contents in all_candidates.items():
+            all_contents.extend(contents)
+
+        responses = []
+        for content in all_contents:
+            # 랜덤하게 일부만 클릭
+            clicked = random.random() < 0.3  # 30% 확률로 클릭
+            dwell_time = random.randint(60, 300) if clicked else 0
+
+            responses.append(
+                {
+                    "content_id": content.get("id"),
+                    "clicked": clicked,
+                    "dwell_time": dwell_time,
+                }
+            )
+
+        return responses
+
+    def _create_simulated_log_entry(
+        self, content: Dict, event_type: str, dwell_time: Optional[int] = None
+    ) -> Dict:
+        """시뮬레이션용 로그 엔트리를 생성합니다.
+
+        Args:
+            content (Dict): 추천된 콘텐츠 정보.
+            event_type (str): "VIEW" 또는 "CLICK".
+            dwell_time (Optional[int]): None이면 VIEW→0, CLICK→랜덤(60~600).
+
+        Returns:
+            Dict: user_logs 포맷의 단일 로그 엔트리.
+        """
+        # 1) 콘텐츠 ID/타입 조회 (한 번만)
+        content_id = content["id"]
+        content_type = content["type"]
+
+        # 2) 클릭 여부 플래그
+        is_click = event_type == "CLICK"
+
+        # 3) 체류 시간 결정
+        if dwell_time is None:
+            time_seconds = random.randint(60, 600) if is_click else 0
+        else:
+            time_seconds = dwell_time
+
+        # 4) 클릭 확률 비율 산출
+        ratio = 1.0 if is_click else 0.1 + 0.8 * random.random()
+
+        # 5) 타임스탬프
+        timestamp = datetime.now(timezone.utc).isoformat()
+
         return {
             "user_id": self.current_user_id,
-            "content_id": content.get("id"),
+            "content_id": content_id,
             "event_type": event_type,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "content_actual_type": content.get("type"),
-            "ratio": 1.0 if event_type == "CLICK" else random.uniform(0.1, 0.9),
-            "time": (
-                random.randint(60, 600)
-                if event_type == "CLICK"
-                else random.randint(5, 300)
-            ),
+            "timestamp": timestamp,
+            "content_actual_type": content_type,
+            "ratio": ratio,
+            "time": time_seconds,
         }
 
+    @property
+    def observation_space(self) -> spaces.Box:
+        return self._observation_space
+
+    @property
+    def action_space(self) -> spaces.Tuple:
+        return self._action_space
+
     def reset(
-        self, seed: int | None = None, options: dict | None = None
-    ) -> tuple[np.ndarray, dict]:
+        self, seed: Optional[int] = None, options: Optional[Dict] = None
+    ) -> Tuple[np.ndarray, Dict]:
         """
         환경을 초기화합니다. (에피소드 시작)
 
         Args:
-            seed (int | None): 랜덤 시드.
-            options (dict | None): 추가 옵션.
+            seed (Optional[int]): 랜덤 시드.
+            options (Optional[Dict]): 추가 옵션.
 
         Returns:
-            tuple[np.ndarray, dict]: 초기 상태 벡터, 기타 info.
+            tuple[np.ndarray, Dict]: 초기 상태 벡터, 기타 info.
         """
         if options and "query" in options:
             self.current_query = options["query"]
         else:
             self.current_query = None
+
+        self.step_count = 0
+        self.current_session_simulated_logs.clear()
+        self._set_current_user_info(options.get("user_id", None))
 
         user_initial_data = self._get_user_data_for_embedding(
             self.current_user_original_logs_df, []
@@ -284,13 +487,13 @@ class RecEnv(gym.Env, BaseEnv):
         return state, {}
 
     def step(
-        self, action: tuple[int, int]
-    ) -> tuple[np.ndarray, float, bool, bool, dict]:
+        self, action_list: List[Tuple[str, int]]
+    ) -> tuple[np.ndarray, float, bool, bool, Dict]:
         """
-        환경에 액션(추천)을 적용하고, 다음 상태 및 보상 등을 반환합니다.
+        환경에 액션 리스트(top-k 추천)을 적용하고, 다음 상태 및 보상 등을 반환합니다.
 
         Args:
-            action (tuple[int, int]): (콘텐츠 타입, 후보 인덱스)
+            action_list (List[Tuple[str, int]]): [(콘텐츠 타입, 후보 인덱스), ...] top-k 개의 액션
 
         Returns:
             tuple:
@@ -298,43 +501,52 @@ class RecEnv(gym.Env, BaseEnv):
                 - 보상 (float)
                 - done (bool): 에피소드 종료 여부
                 - truncated (bool): 트렁케이트 여부(사용 안함)
-                - info (dict): 기타 정보
+                - info (Dict): 기타 정보
         """
         self.step_count += 1
 
         # 1) 현재 사용자 상태(user_state)를 구한다.
-        #    (기존까지 시뮬레이션된 로그를 반영하여 임베딩)
         user_current_data = self._get_user_data_for_embedding(
             self.current_user_original_logs_df,
             self.current_session_simulated_logs,
         )
         user_state = self.embedder.embed_user(user_current_data)
 
-        # 2) 후보 생성: 이제 get_candidates(uery) 형태로 호출 -> 추후 추천 시스템을 추가한다면, state로 넘김
+        # 2) 후보 생성
         cand_dict = self.candidate_generator.get_candidates(self.current_query)
 
-        # 3) 액션에 따라 실제 추천 콘텐츠 선택
-        selected_content = self._select_content_from_action(cand_dict, action)
-        if selected_content is None:
-            logging.warning(f"Invalid action {action}. Candidate not found.")
-            # 선택 실패 시, 현재 상태 다시 리턴하며 바로 에피소드 종료
+        # 3) 액션 리스트에 따라 실제 추천 콘텐츠들 선택 (top-k)
+        selected_contents = self._select_contents_from_action(cand_dict, action_list)
+        if not selected_contents:
+            logging.warning("No valid contents selected from actions %s", action_list)
             return user_state, 0.0, True, False, {}
 
-        # 4) 시뮬레이션: 클릭/VIEW 이벤트 샘플링
-        simulated_event_type = self._sample_event_type()
+        # 4) LLM 시뮬레이션: 선택된 top-k 콘텐츠에 대해
+        all_responses = self._simulate_user_response_for_topk(selected_contents)
 
-        # 5) 보상 계산: 추천한 콘텐츠, 이벤트 타입을 보상 함수에 넘김
-        reward = self.reward_fn.calculate(
-            selected_content, event_type=simulated_event_type
+        # 5) 보상 계산: 모든 응답을 사용하여 보상 계산
+        total_reward = self.reward_fn.calculate_from_topk_responses(
+            all_responses=all_responses, selected_contents=selected_contents
         )
 
-        # 6) 시뮬레이션 로그 생성 및 추가
-        new_log_entry = self._create_simulated_log_entry(
-            selected_content, simulated_event_type
-        )
-        self.current_session_simulated_logs.append(new_log_entry)
+        # 6) 시뮬레이션 로그 생성 및 추가 (클릭한 콘텐츠들만)
+        for response in all_responses:
+            if response["clicked"]:
+                # 클릭한 콘텐츠 찾기
+                clicked_content = None
+                for content in selected_contents:
+                    if content.get("id") == int(response["content_id"]):
+                        clicked_content = content
+                        break
 
-        # 7) 다음 상태(next_state) 계산: 업데이트된 로그를 반영하여 사용자 임베딩 생성
+                if clicked_content:
+                    event_type = "CLICK"
+                    new_log_entry = self._create_simulated_log_entry(
+                        clicked_content, event_type, response["dwell_time"]
+                    )
+                    self.current_session_simulated_logs.append(new_log_entry)
+
+        # 7) 다음 상태 계산
         user_next_data = self._get_user_data_for_embedding(
             self.current_user_original_logs_df,
             self.current_session_simulated_logs,
@@ -348,13 +560,94 @@ class RecEnv(gym.Env, BaseEnv):
         self.context.step()
 
         # 10) 최종 결과 반환
-        return next_state, reward, done, False, {}
+        info = {
+            "all_responses": all_responses,
+            "selected_contents": selected_contents,
+            "total_clicks": sum(1 for r in all_responses if r["clicked"]),
+        }
+        return next_state, total_reward, done, False, info
 
-    def get_candidates(self) -> dict[str, list[Any]]:
+    def _simulate_user_response_for_topk(
+        self, selected_contents: List[Dict]
+    ) -> List[Dict]:
         """
-        현 상태에서 추천 후보군을 반환합니다.get_candidatesget_candidates
+        선택된 top-k 콘텐츠에 대해 LLM 기반 사용자 반응 시뮬레이션
+
+        Args:
+            selected_contents (List[Dict]): 선택된 top-k 콘텐츠 리스트
 
         Returns:
-            dict[str, list[Any]]: {타입: 후보 콘텐츠 리스트}
+            List[Dict]: 각 콘텐츠별 반응 정보 리스트
+        """
+        if self.llm_simulator is None:
+            logging.warning(
+                "LLM simulator not available. Falling back to random simulation."
+            )
+            return self._create_fallback_responses_for_list(selected_contents)
+
+        try:
+            logging.debug(
+                "Sending %d selected contents to LLM simulator", len(selected_contents)
+            )
+
+            # 페르소나 정보 사용
+            raw_response = self.llm_simulator.simulate_user_response(
+                persona_id=self.persona_id,
+                mbti=self.persona_mbti,
+                investment_level=self.persona_investment_level,
+                recommended_contents=selected_contents,
+                current_context={
+                    "step_count": self.step_count,
+                    "session_logs": self.current_session_simulated_logs,
+                },
+            )
+
+            # LLMResponseHandler를 사용하여 응답 처리
+            return self.response_handler.extract_all_responses(
+                llm_raw_text=raw_response, all_contents=selected_contents
+            )
+
+        except Exception as e:
+            logging.error(
+                "LLM simulation error: %s. Falling back to random simulation.", e
+            )
+            return self._create_fallback_responses_for_list(selected_contents)
+
+    def _create_fallback_responses_for_list(self, contents: List[Dict]) -> List[Dict]:
+        """콘텐츠 리스트에 대한 폴백 응답을 생성합니다.
+
+        각 콘텐츠에 대해 30% 확률로 클릭되었다고 가정하며, 클릭된 경우 무작위 체류 시간을 설정합니다.
+
+        Args:
+            contents (List[Dict]): 추천된 콘텐츠 목록. 각 콘텐츠는 ID 등을 포함한 딕셔너리입니다.
+
+        Returns:
+            List[Dict]: 각 콘텐츠에 대한 사용자 반응을 나타내는 딕셔너리 리스트.
+                각 딕셔너리는 다음 필드를 포함합니다:
+                    - content_id (Any): 콘텐츠의 고유 ID
+                    - clicked (bool): 클릭 여부 (30% 확률)
+                    - dwell_time (int): 체류 시간 (초). 클릭 시 60~300, 미클릭 시 0
+        """
+        responses = []
+        for content in contents:
+            clicked = random.random() < 0.3  # 30% 확률로 클릭
+            dwell_time = random.randint(60, 300) if clicked else 0
+
+            responses.append(
+                {
+                    "content_id": content.get("id"),
+                    "clicked": clicked,
+                    "dwell_time": dwell_time,
+                }
+            )
+
+        return responses
+
+    def get_candidates(self) -> Dict[str, List[Any]]:
+        """
+        현 상태에서 추천 후보군을 반환합니다.
+
+        Returns:
+            Dict[str, List[Any]]: {타입: 후보 콘텐츠 리스트}
         """
         return self.candidate_generator.get_candidates(self.current_query)

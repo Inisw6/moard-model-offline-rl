@@ -1,6 +1,7 @@
 import json
 import logging
 import random
+import re
 from typing import Any, Dict, List, Tuple
 
 
@@ -9,7 +10,7 @@ class LLMResponseHandler:
     LLM 시뮬레이터 응답 처리 및 검증을 담당하는 클래스
     """
 
-    def __init__(self, debug: bool = False):
+    def __init__(self, debug: bool = False) -> None:
         """
         Args:
             debug (bool): 디버깅 로그 출력 여부
@@ -45,43 +46,61 @@ class LLMResponseHandler:
 
         except Exception as e:
             if self.debug:
-                logging.error(f"LLM response processing error: {e}")
+                logging.error("LLM response processing error: %s", e)
             raise
 
     def _parse_json(self, text: str) -> List[Dict]:
-        """LLM 원본 텍스트에서 JSON 배열을 파싱합니다."""
+        """
+        LLM 원본 텍스트에서 JSON 배열을 파싱합니다.
+
+        이 메서드는 Markdown 코드 펜스(````json` 또는 ``````)를 제거하고,
+        남은 텍스트를 JSON으로 디코딩하여 응답 객체 리스트를 반환합니다.
+        지원하는 JSON 구조는 다음 두 가지입니다:
+          1. 최상위 요소가 배열인 JSON.
+          2. 최상위 요소가 딕셔너리이고, `"responses"` 키에 응답 리스트가 있는 경우.
+
+        Args:
+            text (str): LLM에서 생성된 원본 텍스트. Markdown 코드 펜스로 감싸져 있을 수 있습니다.
+
+        Returns:
+            List[Dict]: 파싱된 응답 객체들의 리스트.
+
+        Raises:
+            ValueError: JSON 구조가 예상과 다르거나 디코딩에 실패했을 때 발생합니다.
+        """
 
         if self.debug:
-            logging.debug("🔧 JSON 파싱 시작...")
+            logging.debug("JSON 파싱 시작...")
 
         # JSON 블록 마크다운 제거
+        # 기존 text: 마크다운 코드펜스 포함 가능
         text = text.strip()
-        if text.startswith("```json"):
-            text = text[7:].strip()
-        elif text.startswith("```"):
-            text = text[3:].strip()
-        if text.endswith("```"):
-            text = text[:-3].strip()
+
+        # 정규식으로 앞뒤 마크다운 코드펜스 제거
+        text = re.sub(r"^```(?:json)?\s*", "", text)  # 앞쪽 ``` 또는 ```json
+        text = re.sub(r"\s*```$", "", text)  # 뒤쪽 ```
 
         # JSON 파싱
         try:
             parsed = json.loads(text)
             if isinstance(parsed, list):
                 if self.debug:
-                    logging.debug(f"✅ JSON 파싱 성공: {len(parsed)}개 응답")
+                    logging.debug("JSON 파싱 성공: %d개 객체", len(parsed))
                 return parsed
             elif isinstance(parsed, dict) and "responses" in parsed:
                 responses = parsed["responses"]
                 if self.debug:
                     logging.debug(
-                        f"✅ JSON 파싱 성공: {len(responses)}개 응답 (딕셔너리 형태)"
+                        logging.debug(
+                            "'responses' 키에서 %d개 객체 파싱", len(responses)
+                        )
                     )
                 return responses
             else:
                 raise ValueError(f"Unexpected JSON structure: {type(parsed)}")
         except json.JSONDecodeError as e:
             if self.debug:
-                logging.error(f"❌ JSON 파싱 실패: {e}")
+                logging.error("JSON 파싱 실패: %s", e)
             raise ValueError(f"LLM이 올바른 JSON을 생성하지 못했습니다: {text}")
 
     def _validate_response_structure(self, response: Dict[str, Any]) -> None:

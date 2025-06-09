@@ -145,9 +145,7 @@ class LLMUserSimulator:
             raise RuntimeError("Ollama 서버를 사용할 수 없습니다.")
 
         # LLM 기반 시뮬레이션 실행
-        return self._ollama_based_simulation(
-            persona, recommended_contents, current_context
-        )
+        return self._ollama_based_simulation(persona, recommended_contents)
 
     def _ollama_based_simulation(
         self, persona: PersonaConfig, recommended_contents: List[Dict]

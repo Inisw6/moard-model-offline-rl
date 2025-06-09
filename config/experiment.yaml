@@ -6,15 +6,16 @@ env:
     top_k: 1
     # 시뮬레이션 페르소나 설정 (1-100중 선택, null이면 랜덤)
     persona_id: 5 
-    debug: true    # 페르소나 정보 출력 여부
+    # 페르소나 정보 출력 여부
+    debug: true   
 
 # LLM 시뮬레이터 설정
 llm_simulator:
-  type: ollama  # random -> ollama로 다시 변경
+  type: ollama
   params:
     ollama_url: "http://localhost:11434"  # Ollama 서버 주소
-    model: "llama3.2:2b"                  # 1b -> 2b로 변경 (더 안정적)
-    debug: true                           # false -> true로 변경 (프롬프트 확인)
+    model: "gemma3:4b-it-q4_K_M"
+    debug: true 
 
 agent:
   type: dqn

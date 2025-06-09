@@ -16,7 +16,7 @@ from components.llm_simu import LLMUserSimulator
 from components.persona_db import get_persona_db
 
 
-@register("rec_env")
+@register("llm_rec_env")
 class RecEnv(gym.Env, BaseEnv):
     """
     추천 환경(RecEnv).
@@ -55,9 +55,14 @@ class RecEnv(gym.Env, BaseEnv):
             debug (bool): 디버깅 모드 활성화 여부.
         """
         super().__init__()
+        # 인자 없으면 예외 발생
+        assert embedder is not None, "Embedder must be provided"
+        assert candidate_generator is not None, "Candidate generator must be provided"
+        assert reward_fn is not None, "Reward function must be provided"
+        assert context is not None, "Context manager must be provided"
         assert llm_simulator is not None, "LLM simulator must be provided"
 
-        # 핵심 속성 설정
+        # 속성 설정
         self.context = context
         self.max_steps = max_steps
         self.top_k = top_k
@@ -82,8 +87,14 @@ class RecEnv(gym.Env, BaseEnv):
         self._init_spaces()
 
     def _init_persona(self, persona_id: Optional[int], debug: bool) -> None:
-        """
-        페르소나를 로드하고, `self.persona_*` 속성을 설정합니다.
+        """페르소나를 로드하고 속성에 저장합니다.
+
+        Args:
+            persona_id (Optional[int]): 시뮬레이션용 페르소나 ID. None이면 랜덤 선택.
+            debug (bool): 디버그 모드 활성화 여부. True면 선택된 페르소나를 로깅합니다.
+
+        Raises:
+            ValueError: 지정된 persona_id가 DB에 존재하지 않을 때 발생합니다.
         """
         persona_db = get_persona_db()
 
@@ -113,16 +124,28 @@ class RecEnv(gym.Env, BaseEnv):
         self.persona_investment_level = persona.investment_level
 
     def _load_dataframes(self) -> None:
-        """
-        사용자 및 콘텐츠 로그를 위한 DataFrame을 DB로부터 불러와 속성에 저장합니다.
+        """DB에서 사용자 및 콘텐츠 로그용 DataFrame을 불러와 인스턴스 변수에 저장합니다.
+
+        이 메서드는 반환값이 없으며, 아래 세 가지 DataFrame을 설정합니다:
+          - self.all_users_df
+          - self.all_user_logs_df
+          - self.all_contents_df
         """
         self.all_users_df = get_users()
         self.all_user_logs_df = get_user_logs()
         self.all_contents_df = get_contents()
 
     def _init_user(self, user_id: Optional[int]) -> None:
-        """
-        현재 에피소드에 사용할 사용자 ID와 사용자 정보를 설정합니다.
+        """현재 에피소드에 사용할 사용자 ID와 사용자 정보를 초기화합니다.
+
+        Args:
+            user_id (Optional[int]): 환경에 할당할 사용자 ID. None일 경우 첫 사용자를 선택하거나 더미 ID(-1)를 사용합니다.
+
+        Side Effects:
+            self.current_user_id: 설정된 사용자 ID
+            self.current_user_info: 해당 ID에 매핑된 사용자 정보(dict)
+            self.current_user_original_logs_df: 빈 DataFrame으로 초기화
+            self.current_session_simulated_logs: 빈 리스트로 초기화
         """
         self.current_user_original_logs_df = pd.DataFrame()
         self.current_session_simulated_logs = []
@@ -152,8 +175,15 @@ class RecEnv(gym.Env, BaseEnv):
             self.current_user_info = {"id": -1, "uuid": "dummy_user"}
 
     def _init_spaces(self) -> None:
-        """
-        observation_space와 action_space를 정의합니다.
+        """observation_space와 action_space를 정의합니다.
+
+        observation_space:
+            - Box(low=-inf, high=inf, shape=(state_dim,), dtype=float32)
+        action_space:
+            - Tuple of (Discrete(type_count), Discrete(MAX_CANDIDATE_INDEX)) 반복 self.top_k 회
+
+        Constants:
+            MAX_CANDIDATE_INDEX (int): 후보 인덱스의 최대값 (100)
         """
         state_dim = self.embedder.output_dim()
         self._observation_space = spaces.Box(
@@ -161,7 +191,6 @@ class RecEnv(gym.Env, BaseEnv):
         )
 
         MAX_CANDIDATE_INDEX = 100
-        # action = [(type_idx, candidate_idx) for _ in range(top_k)]
         self._action_space = spaces.Tuple(
             [
                 spaces.Tuple(

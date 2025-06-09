@@ -50,4 +50,11 @@ def make(key: str, **kwargs: Any) -> Any:
 # @register 데코레이터 호출을 보장합니다.
 _package_dir = os.path.dirname(__file__)
 for _finder, module_name, _ispkg in pkgutil.iter_modules([_package_dir]):
+    # 1) 컴포넌트 패키지/모듈 import
     importlib.import_module(f"{__package__}.{module_name}")
+
+    # 2) 만약 agents 같은 서브패키지라면, 그 안의 모듈들도 import
+    if _ispkg:
+        subpkg_dir = os.path.join(_package_dir, module_name)
+        for _f2, subname, _isp2 in pkgutil.iter_modules([subpkg_dir]):
+            importlib.import_module(f"{__package__}.{module_name}.{subname}")

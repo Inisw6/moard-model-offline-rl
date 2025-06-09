@@ -6,7 +6,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from components.base import BaseAgent
+from components.core.base import BaseAgent
 from components.registry import register
 from models.q_network import QNetwork
 from replay.replay_buffer import ReplayBuffer

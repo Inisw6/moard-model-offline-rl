@@ -8,12 +8,12 @@ from gymnasium import spaces
 import numpy as np
 import pandas as pd
 
-from components.base import BaseEnv
+from components.core.base import BaseEnv
 from components.registry import register
-from components.db_utils import get_contents, get_user_logs, get_users
-from components.llm_response_handler import LLMResponseHandler
-from components.llm_simu import LLMUserSimulator
-from components.persona_db import get_persona_db
+from components.database.db_utils import get_contents, get_user_logs, get_users
+from components.simulation.llm_response_handler import LLMResponseHandler
+from components.simulation.llm_simu import LLMUserSimulator
+from components.simulation.persona_db import get_persona_db
 
 
 @register("llm_rec_env")

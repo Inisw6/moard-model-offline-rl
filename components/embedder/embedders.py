@@ -7,8 +7,8 @@ import numpy as np
 from gensim.models.doc2vec import Doc2Vec
 from sentence_transformers import SentenceTransformer
 
-from components.base import BaseContentEmbedder, BaseEmbedder, BaseUserEmbedder
-from components.db_utils import get_contents
+from components.core.base import BaseContentEmbedder, BaseEmbedder, BaseUserEmbedder
+from components.database.db_utils import get_contents
 from components.registry import register
 
 

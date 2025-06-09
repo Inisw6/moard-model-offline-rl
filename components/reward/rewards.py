@@ -1,6 +1,6 @@
 from typing import Dict, List
 
-from components.base import BaseRewardFn
+from components.core.base import BaseRewardFn
 from components.registry import register
 
 

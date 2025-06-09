@@ -8,8 +8,14 @@ from typing import List, Dict, Any, Tuple
 from datetime import datetime
 
 from components.registry import make
-from components.rec_context import RecContextManager, get_recommendation_quota
-from components.rec_utils import enforce_type_constraint, compute_all_q_values
+from components.recommendation.rec_context import (
+    RecContextManager,
+    get_recommendation_quota,
+)
+from components.recommendation.rec_utils import (
+    enforce_type_constraint,
+    compute_all_q_values,
+)
 
 
 class ExperimentRunner:
@@ -75,9 +81,10 @@ class ExperimentRunner:
         context = RecContextManager(cfg["env"]["params"]["cold_start"])
 
         # LLM 시뮬레이터 생성
-        from components.llm_simu import LLMUserSimulator
+        from components.simulation.llm_simu import LLMUserSimulator
+
         llm_simulator = LLMUserSimulator(**cfg["llm_simulator"]["params"])
-        
+
         # 환경 생성 (LLM 시뮬레이터 포함)
         env = make(
             cfg["env"]["type"],
@@ -88,7 +95,7 @@ class ExperimentRunner:
             context=context,
             llm_simulator=llm_simulator,  # LLM 시뮬레이터 전달
         )
-        
+
         # 에이전트 생성
         agent = make(
             cfg["agent"]["type"],
@@ -100,7 +107,7 @@ class ExperimentRunner:
 
         total_eps: int = cfg["experiment"]["total_episodes"]
         max_recs: int = cfg["experiment"]["max_recommendations"]
-        
+
         episode_metrics = []
 
         for ep in range(total_eps):
@@ -148,7 +155,9 @@ class ExperimentRunner:
                     logging.info(
                         f"    Recommended {len(enforce_list)} contents → total_reward={total_reward}, done={done}"
                     )
-                    logging.info(f"    Clicks: {info.get('total_clicks', 0)}/{len(enforce_list)}")
+                    logging.info(
+                        f"    Clicks: {info.get('total_clicks', 0)}/{len(enforce_list)}"
+                    )
 
                     # RL 학습을 위한 데이터 저장 (각 선택된 콘텐츠별로)
                     for ctype, idx in enforce_list:
@@ -170,12 +179,17 @@ class ExperimentRunner:
                             ]
                             for t, cs in next_cand_dict.items()
                         }
-                        
+
                         # 개별 콘텐츠별 보상을 전체 보상에서 분할 (단순화)
                         individual_reward = total_reward / len(enforce_list)
-                        
+
                         agent.store(
-                            state, selected_emb, individual_reward, next_state, next_cembs, done
+                            state,
+                            selected_emb,
+                            individual_reward,
+                            next_state,
+                            next_cembs,
+                            done,
                         )
 
                         agent.learn()
@@ -192,8 +206,10 @@ class ExperimentRunner:
                         "total_reward": total_reward,
                         "recommendations": rec_count,
                         "clicks": info.get("total_clicks", 0),
-                        "click_ratio": info.get("total_clicks", 0) / rec_count if rec_count else 0,
-                        "epsilon": getattr(agent, "epsilon", float('nan')),
+                        "click_ratio": (
+                            info.get("total_clicks", 0) / rec_count if rec_count else 0
+                        ),
+                        "epsilon": getattr(agent, "epsilon", float("nan")),
                         "datetime": datetime.now().isoformat(),
                     }
                 )

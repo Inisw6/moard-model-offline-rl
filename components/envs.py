@@ -339,9 +339,7 @@ class RecEnv(gym.Env, BaseEnv):
 
         try:
             # 전체 후보군을 flat list로 변환
-            all_contents = []
-            for content_type, contents in all_candidates.items():
-                all_contents.extend(contents)
+            all_contents = [c for contents in all_candidates.values() for c in contents]
 
             logging.debug(f"Sending {len(all_contents)} contents to LLM simulator")
 
@@ -453,7 +451,7 @@ class RecEnv(gym.Env, BaseEnv):
 
     def reset(
         self, seed: Optional[int] = None, options: Optional[Dict] = None
-    ) -> tuple[np.ndarray, Dict]:
+    ) -> Tuple[np.ndarray, Dict]:
         """
         환경을 초기화합니다. (에피소드 시작)
 

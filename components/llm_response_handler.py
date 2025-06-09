@@ -103,49 +103,68 @@ class LLMResponseHandler:
                 logging.error("JSON 파싱 실패: %s", e)
             raise ValueError(f"LLM이 올바른 JSON을 생성하지 못했습니다: {text}")
 
-    def _validate_response_structure(self, response: Dict[str, Any]) -> None:
-        """LLM 응답의 기본 구조를 검증합니다."""
-        if not isinstance(response, dict):
-            raise ValueError(f"LLM response is not a dictionary: {type(response)}")
+    # def _validate_response_structure(self, response: Dict[str, Any]) -> None:
+    #     """LLM 응답의 기본 구조를 검증합니다."""
+    #     if not isinstance(response, dict):
+    #         raise ValueError(f"LLM response is not a dictionary: {type(response)}")
 
-        if "responses" not in response:
-            raise ValueError(
-                f"LLM response missing 'responses' key: {list(response.keys())}"
-            )
+    #     if "responses" not in response:
+    #         raise ValueError(
+    #             f"LLM response missing 'responses' key: {list(response.keys())}"
+    #         )
 
-        if not isinstance(response["responses"], list):
-            raise ValueError(
-                f"'responses' is not a list: {type(response['responses'])}"
-            )
+    #     if not isinstance(response["responses"], list):
+    #         raise ValueError(
+    #             f"'responses' is not a list: {type(response['responses'])}"
+    #         )
 
-        if self.debug:
-            logging.debug(f"✅ LLM response structure validation passed")
+    #     if self.debug:
+    #         logging.debug(f"✅ LLM response structure validation passed")
 
     def _validate_response_count(
         self, responses: List[Dict], expected_count: int
     ) -> None:
-        """응답 수가 예상과 일치하는지 검증합니다."""
+        """응답 수가 예상과 일치하는지 검증합니다.
+
+        Args:
+            responses (List[Dict]): LLM 또는 시뮬레이터에서 받은 응답 리스트.
+            expected_count (int): 기대하는 응답 개수(top-k 등).
+
+        Raises:
+            ValueError: 실제 응답 수가 기대 수와 일치하지 않을 경우 발생합니다.
+        """
         actual_count = len(responses)
 
         if actual_count != expected_count:
             raise ValueError(
-                f"Response count mismatch: expected {expected_count}, got {actual_count}"
+                "Response count mismatch: expected %d, got %d"
+                % (expected_count, actual_count)
             )
 
         if self.debug:
             logging.debug(
-                f"✅ Response count validation passed: {actual_count} responses"
+                "Response count validation passed: %d responses", actual_count
             )
 
     def _extract_content_response(
         self, responses: List[Dict], target_content_id: int
     ) -> Tuple[str, int]:
-        """특정 콘텐츠에 대한 응답을 추출합니다."""
+        """특정 콘텐츠에 대한 응답을 추출합니다.
 
+        Args:
+            responses (List[Dict]): 응답 객체들의 리스트.
+            target_content_id (int): 추출 대상이 되는 콘텐츠의 ID.
+
+        Returns:
+            Tuple[str, int]: 파싱된 응답 결과(포맷 및 값).
+
+        Raises:
+            ValueError: 해당 콘텐츠에 대한 응답이 없거나, 응답 포맷이 잘못된 경우.
+        """
         for i, resp in enumerate(responses):
             if not isinstance(resp, dict):
                 if self.debug:
-                    logging.warning(f"Invalid response format at index {i}: {resp}")
+                    logging.warning("Invalid response format at index %d: %s", i, resp)
                 continue
 
             content_id = int(resp.get("content_id"))
@@ -153,19 +172,30 @@ class LLMResponseHandler:
                 return self._parse_single_response(resp, target_content_id)
 
         # 해당 콘텐츠에 대한 응답을 찾지 못한 경우
-        raise ValueError(f"No response found for content_id: {target_content_id}")
+        raise ValueError("No response found for content_id: %d" % target_content_id)
 
     def _parse_single_response(
         self, response: Dict, content_id: int
     ) -> Tuple[str, int]:
-        """단일 응답을 파싱하고 검증합니다."""
+        """단일 응답을 파싱하고 검증합니다.
 
+        Args:
+            response (Dict): 단일 콘텐츠에 대한 응답 딕셔너리.
+            content_id (int): 응답을 검증할 콘텐츠 ID.
+
+        Returns:
+            Tuple[str, int]: (이벤트 타입, 체류 시간(초)). 예시: ("CLICK", 123)
+
+        Notes:
+            - 클릭하지 않은 경우(event_type="VIEW") 체류시간은 항상 0입니다.
+            - 입력 값에 이상이 있으면 경고 로그를 남기고 보정합니다.
+        """
         # 클릭 여부 추출 및 검증
         clicked = response.get("clicked", False)
         if not isinstance(clicked, bool):
             if self.debug:
                 logging.warning(
-                    f"Invalid clicked value for {content_id}: {clicked}, using False"
+                    "Invalid clicked value for %d: %s, using False", content_id, clicked
                 )
             clicked = False
 
@@ -174,20 +204,22 @@ class LLMResponseHandler:
         if not isinstance(dwell_time, (int, float)) or dwell_time < 0:
             if self.debug:
                 logging.warning(
-                    f"Invalid dwell_time for {content_id}: {dwell_time}, using 0"
+                    "Invalid dwell_time for %d: %s, using 0", content_id, dwell_time
                 )
             dwell_time = 0
 
         # 클릭했는데 체류시간이 0인 경우 로직 검증
         if clicked and dwell_time == 0:
             if self.debug:
-                logging.warning(f"Content {content_id}: clicked=True but dwell_time=0")
+                logging.warning("Content %d: clicked=True but dwell_time=0", content_id)
 
         # 클릭하지 않았는데 체류시간이 있는 경우 0으로 보정
         if not clicked and dwell_time > 0:
             if self.debug:
                 logging.warning(
-                    f"Content {content_id}: clicked=False but dwell_time={dwell_time}, correcting to 0"
+                    "Content %d: clicked=False but dwell_time=%s, correcting to 0",
+                    content_id,
+                    dwell_time,
                 )
             dwell_time = 0
 
@@ -195,7 +227,7 @@ class LLMResponseHandler:
 
         if self.debug:
             logging.debug(
-                f"✅ Parsed response for {content_id}: {event_type}, {dwell_time}s"
+                "Parsed response for %d: %s, %ds", content_id, event_type, dwell_time
             )
 
         return event_type, int(dwell_time)
@@ -219,7 +251,7 @@ class LLMResponseHandler:
 
         if self.debug:
             logging.debug(
-                f"🎲 Generated fallback response: {event_type}, {dwell_time}s"
+                "Generated fallback response: %s, %ds", event_type, dwell_time
             )
 
         return event_type, dwell_time
@@ -257,7 +289,16 @@ class LLMResponseHandler:
     def _extract_all_content_responses(
         self, responses: List[Dict], all_contents: List[Dict]
     ) -> List[Dict]:
-        """모든 콘텐츠에 대한 응답을 추출하고 변환합니다."""
+        """
+        모든 콘텐츠에 대한 응답을 추출하고 변환합니다.
+
+        Args:
+            responses (List[Dict]): LLM 또는 시뮬레이터에서 받은 응답 리스트.
+            all_contents (List[Dict]): 추천한 전체 콘텐츠 리스트.
+
+        Returns:
+            List[Dict]: 각 콘텐츠별 응답 딕셔너리 리스트. (content_id, clicked, dwell_time)
+        """
 
         result = []
         content_ids = [content.get("id") for content in all_contents]
@@ -265,7 +306,7 @@ class LLMResponseHandler:
         for i, resp in enumerate(responses):
             if not isinstance(resp, dict):
                 if self.debug:
-                    logging.warning(f"Invalid response format at index {i}: {resp}")
+                    logging.warning("Invalid response format at index %d: %s", i, resp)
                 # 폴백으로 해당 콘텐츠에 대해 기본 응답 추가
                 if i < len(content_ids):
                     result.append(
@@ -280,7 +321,7 @@ class LLMResponseHandler:
             content_id = int(resp.get("content_id"))
             if not content_id:
                 if self.debug:
-                    logging.warning(f"Missing content_id in response {i}: {resp}")
+                    logging.warning("Missing content_id in response %d: %s", i, resp)
                 # 순서대로 매칭 시도
                 if i < len(content_ids):
                     content_id = content_ids[i]
@@ -301,7 +342,7 @@ class LLMResponseHandler:
             if content_id not in response_content_ids:
                 if self.debug:
                     logging.warning(
-                        f"No response for content_id: {content_id}, adding default"
+                        "No response for content_id: %s, adding default", content_id
                     )
                 result.append(
                     {"content_id": content_id, "clicked": False, "dwell_time": 0}
@@ -310,7 +351,7 @@ class LLMResponseHandler:
         if self.debug:
             clicked_count = sum(1 for resp in result if resp["clicked"])
             logging.debug(
-                f"✅ Extracted {len(result)} responses, {clicked_count} clicked"
+                "Extracted %d responses, %d clicked", len(result), clicked_count
             )
 
         return result
@@ -318,14 +359,26 @@ class LLMResponseHandler:
     def _parse_single_response_for_all(
         self, response: Dict, content_id: int
     ) -> Tuple[bool, int]:
-        """단일 응답을 파싱하여 클릭 여부와 체류시간을 반환합니다."""
+        """
+        단일 응답을 파싱하여 클릭 여부와 체류시간을 반환합니다.
 
+        Args:
+            response (Dict): 단일 콘텐츠에 대한 응답 딕셔너리.
+            content_id (int): 검증 대상 콘텐츠 ID.
+
+        Returns:
+            Tuple[bool, int]: (클릭 여부, 체류 시간(초)). 예시: (True, 127)
+
+        Notes:
+            - 입력 값에 이상이 있으면 경고 로그를 남기고 보정합니다.
+            - dwell_time은 음수일 수 없으며, 클릭하지 않은 경우 항상 0입니다.
+        """
         # 클릭 여부 추출 및 검증
         clicked = response.get("clicked", False)
         if not isinstance(clicked, bool):
             if self.debug:
                 logging.warning(
-                    f"Invalid clicked value for {content_id}: {clicked}, using False"
+                    "Invalid clicked value for %d: %s, using False", content_id, clicked
                 )
             clicked = False
 
@@ -334,20 +387,22 @@ class LLMResponseHandler:
         if not isinstance(dwell_time, (int, float)) or dwell_time < 0:
             if self.debug:
                 logging.warning(
-                    f"Invalid dwell_time for {content_id}: {dwell_time}, using 0"
+                    "Invalid dwell_time for %d: %s, using 0", content_id, dwell_time
                 )
             dwell_time = 0
 
         # 클릭했는데 체류시간이 0인 경우 로직 검증
         if clicked and dwell_time == 0:
             if self.debug:
-                logging.warning(f"Content {content_id}: clicked=True but dwell_time=0")
+                logging.warning("Content %d: clicked=True but dwell_time=0", content_id)
 
         # 클릭하지 않았는데 체류시간이 있는 경우 0으로 보정
         if not clicked and dwell_time > 0:
             if self.debug:
                 logging.warning(
-                    f"Content {content_id}: clicked=False but dwell_time={dwell_time}, correcting to 0"
+                    "Content %d: clicked=False but dwell_time=%s, correcting to 0",
+                    content_id,
+                    dwell_time,
                 )
             dwell_time = 0
 
@@ -356,6 +411,16 @@ class LLMResponseHandler:
     def _create_fallback_all_responses(self, all_contents: List[Dict]) -> List[Dict]:
         """
         LLM 응답 실패 시 모든 콘텐츠에 대한 폴백 응답을 생성합니다.
+
+        Args:
+            all_contents (List[Dict]): 전체 추천 콘텐츠 딕셔너리 리스트.
+
+        Returns:
+            List[Dict]: 각 콘텐츠별 폴백 응답 리스트.
+                각 딕셔너리는 아래 필드를 포함합니다:
+                    - content_id (Any): 콘텐츠의 ID
+                    - clicked (bool): 클릭 여부 (30% 확률)
+                    - dwell_time (int): 체류 시간(초). 클릭 시 60~300, 미클릭 시 0
         """
         responses = []
         for content in all_contents:
@@ -374,7 +439,9 @@ class LLMResponseHandler:
         if self.debug:
             clicked_count = sum(1 for resp in responses if resp["clicked"])
             logging.debug(
-                f"🎲 Generated fallback responses: {len(responses)} total, {clicked_count} clicked"
+                "Generated fallback responses: %d total, %d clicked",
+                len(responses),
+                clicked_count,
             )
 
         return responses

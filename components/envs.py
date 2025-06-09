@@ -1,7 +1,7 @@
 import logging
 import random
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import gymnasium as gym
 from gymnasium import spaces
@@ -64,6 +64,7 @@ class RecEnv(gym.Env, BaseEnv):
 
         # 속성 설정
         self.context = context
+        self.cold_start = cold_start
         self.max_steps = max_steps
         self.top_k = top_k
         self.embedder = embedder
@@ -183,14 +184,14 @@ class RecEnv(gym.Env, BaseEnv):
             - Tuple of (Discrete(type_count), Discrete(MAX_CANDIDATE_INDEX)) 반복 self.top_k 회
 
         Constants:
-            MAX_CANDIDATE_INDEX (int): 후보 인덱스의 최대값 (100)
+            MAX_CANDIDATE_INDEX (int): 후보 인덱스의 최대값 (24)
         """
         state_dim = self.embedder.output_dim()
         self._observation_space = spaces.Box(
             low=-np.inf, high=np.inf, shape=(state_dim,), dtype=np.float32
         )
 
-        MAX_CANDIDATE_INDEX = 100
+        MAX_CANDIDATE_INDEX = 24
         self._action_space = spaces.Tuple(
             [
                 spaces.Tuple(
@@ -203,21 +204,13 @@ class RecEnv(gym.Env, BaseEnv):
             ]
         )
 
-    @property
-    def observation_space(self) -> spaces.Box:
-        return self._observation_space
-
-    @property
-    def action_space(self) -> spaces.Tuple:
-        return self._action_space
-
-    def _set_current_user_info(self, user_id: int | None):
+    def _set_current_user_info(self, user_id: Optional[int]) -> None:
         """
         사용자 ID를 기반으로 환경 내 현재 사용자 정보를 설정합니다.
         사용자 정보가 없으면 더미 사용자를 등록합니다.
 
         Args:
-            user_id (int | None): 환경에 할당할 사용자 ID.
+            user_id (Optional[int]): 환경에 할당할 사용자 ID.
         """
         if user_id is None:
             if not self.all_users_df.empty:
@@ -236,7 +229,7 @@ class RecEnv(gym.Env, BaseEnv):
                 self.current_user_info = user_info_series.iloc[0].to_dict()
             else:
                 logging.warning(
-                    f"User ID {self.current_user_id} not found. Using dummy user_info."
+                    "User ID %d not found. Using dummy user_info.", self.current_user_id
                 )
                 self.current_user_info = {
                     "id": self.current_user_id,
@@ -246,7 +239,7 @@ class RecEnv(gym.Env, BaseEnv):
             self.current_user_info = {"id": -1, "uuid": "dummy_user"}
 
     def _merge_logs_with_content_type(
-        self, base_logs_df: pd.DataFrame, simulated_logs_list: list[dict]
+        self, base_logs_df: pd.DataFrame, simulated_logs_list: List[Dict]
     ) -> pd.DataFrame:
         """
         사용자의 실제 로그와 시뮬레이션 로그를 병합한 뒤,
@@ -254,7 +247,7 @@ class RecEnv(gym.Env, BaseEnv):
 
         Args:
             base_logs_df (pd.DataFrame): 원본 사용자 로그.
-            simulated_logs_list (list[dict]): 현재 에피소드의 시뮬레이션 로그 리스트.
+            simulated_logs_list (List[Dict]): 현재 에피소드의 시뮬레이션 로그 리스트.
 
         Returns:
             pd.DataFrame: 콘텐츠 타입 정보가 병합된 전체 로그.
@@ -282,17 +275,17 @@ class RecEnv(gym.Env, BaseEnv):
         return combined_logs_df
 
     def _get_user_data_for_embedding(
-        self, base_logs_df: pd.DataFrame, simulated_logs_list: list[dict]
-    ) -> dict:
+        self, base_logs_df: pd.DataFrame, simulated_logs_list: List[Dict]
+    ) -> Dict:
         """
         사용자 임베딩에 필요한 dict 데이터를 생성합니다.
 
         Args:
             base_logs_df (pd.DataFrame): 원본 사용자 로그.
-            simulated_logs_list (list[dict]): 시뮬레이션 로그 리스트.
+            simulated_logs_list (List[Dict]): 시뮬레이션 로그 리스트.
 
         Returns:
-            dict: embed_user 함수 입력 포맷의 사용자 데이터.
+            Dict: embed_user 함수 입력 포맷의 사용자 데이터.
         """
         logs_df = self._merge_logs_with_content_type(base_logs_df, simulated_logs_list)
         processed_logs = logs_df.to_dict("records") if not logs_df.empty else []
@@ -303,17 +296,17 @@ class RecEnv(gym.Env, BaseEnv):
         }
 
     def _select_contents_from_action(
-        self, cand_dict: dict, action_list: List[tuple]
-    ) -> List[dict]:
+        self, cand_dict: Dict, action_list: List[Tuple[str, int]]
+    ) -> List[Dict]:
         """
         액션 리스트에서 실제 추천할 콘텐츠들을 추출합니다.
 
         Args:
-            cand_dict (dict): 추천 후보군 {타입: [콘텐츠, ...]}.
-            action_list (List[tuple]): [(콘텐츠 타입, 후보 인덱스), ...] 리스트.
+            cand_dict (Dict): 추천 후보군 {타입: [콘텐츠, ...]}.
+            action_list (List[Tuple[str, int]]): [(콘텐츠 타입, 후보 인덱스), ...] 리스트.
 
         Returns:
-            List[dict]: 선택된 콘텐츠들, 유효하지 않으면 빈 리스트.
+            List[Dict]: 선택된 콘텐츠들, 유효하지 않으면 빈 리스트.
         """
         selected_contents = []
         for ctype, cand_idx in action_list:
@@ -325,12 +318,12 @@ class RecEnv(gym.Env, BaseEnv):
                 )
         return selected_contents
 
-    def _simulate_user_response(self, all_candidates: dict) -> List[Dict]:
+    def _simulate_user_response(self, all_candidates: Dict) -> List[Dict]:
         """
         LLM 기반으로 사용자 반응을 시뮬레이션합니다.
 
         Args:
-            all_candidates (dict): 전체 후보군 {타입: [콘텐츠, ...]}.
+            all_candidates (Dict): 전체 후보군 {타입: [콘텐츠, ...]}.
 
         Returns:
             List[Dict]: 각 후보별 반응 정보 리스트
@@ -338,6 +331,7 @@ class RecEnv(gym.Env, BaseEnv):
         """
         if self.llm_simulator is None:
             # LLM 시뮬레이터가 없으면 기본 확률 기반으로 폴백
+            # todo: llm 시뮬레이터는 기본인데 이게 가능한건가?
             logging.warning(
                 "LLM simulator not available. Falling back to random simulation."
             )
@@ -380,9 +374,21 @@ class RecEnv(gym.Env, BaseEnv):
             )
             return self._create_fallback_responses(all_candidates)
 
-    def _create_fallback_responses(self, all_candidates: dict) -> List[Dict]:
+    def _create_fallback_responses(self, all_candidates: Dict) -> List[Dict]:
         """
-        LLM 시뮬레이터가 실패했을 때 사용할 폴백 응답 생성
+        LLM 시뮬레이터가 실패했을 때 사용할 폴백(랜덤) 응답을 생성합니다.
+
+        Args:
+            all_candidates (Dict): 전체 추천 후보군 딕셔너리.
+                - 키: 콘텐츠 타입(str 등)
+                - 값: 각 타입별 추천 콘텐츠 리스트(List[Dict])
+
+        Returns:
+            List[Dict]: 각 콘텐츠에 대한 폴백 응답의 리스트.
+                각 응답은 아래 필드를 포함합니다:
+                    - content_id (Any): 콘텐츠의 ID
+                    - clicked (bool): 클릭 여부 (30% 확률)
+                    - dwell_time (int): 체류 시간(초). 클릭 시 60~300 랜덤, 미클릭 시 0
         """
         all_contents = []
         for content_type, contents in all_candidates.items():
@@ -405,27 +411,25 @@ class RecEnv(gym.Env, BaseEnv):
         return responses
 
     def _create_simulated_log_entry(
-        self, content: dict, event_type: str, dwell_time: int = None
-    ) -> dict:
+        self, content: Dict, event_type: str, dwell_time: Optional[int] = None
+    ) -> Dict:
         """
         시뮬레이션용 로그 엔트리를 생성합니다.
 
         Args:
-            content (dict): 추천된 콘텐츠 정보.
+            content (Dict): 추천된 콘텐츠 정보.
             event_type (str): 이벤트 타입 ("VIEW" 또는 "CLICK").
-            dwell_time (int, optional): LLM에서 계산된 체류시간(초). None이면 VIEW는 0, CLICK은 기본값.
+            dwell_time (Optional[int]): LLM에서 계산된 체류시간(초). None이면 VIEW는 0, CLICK은 기본값.
 
         Returns:
-            dict: user_logs 포맷의 단일 로그 엔트리.
+            Dict: user_logs 포맷의 단일 로그 엔트리.
         """
         # LLM에서 체류시간을 받았으면 사용, 아니면 이벤트 타입에 따라 처리
         if dwell_time is None:
             if event_type == "VIEW":
                 time_seconds = 0  # VIEW면 체류시간 0
             else:  # CLICK
-                time_seconds = random.randint(
-                    60, 600
-                )  # CLICK인데 체류시간 없으면 기본값
+                time_seconds = random.randint(60, 600)
         else:
             time_seconds = dwell_time
 
@@ -439,23 +443,35 @@ class RecEnv(gym.Env, BaseEnv):
             "time": time_seconds,
         }
 
+    @property
+    def observation_space(self) -> spaces.Box:
+        return self._observation_space
+
+    @property
+    def action_space(self) -> spaces.Tuple:
+        return self._action_space
+
     def reset(
-        self, seed: int | None = None, options: dict | None = None
-    ) -> tuple[np.ndarray, dict]:
+        self, seed: Optional[int] = None, options: Optional[Dict] = None
+    ) -> tuple[np.ndarray, Dict]:
         """
         환경을 초기화합니다. (에피소드 시작)
 
         Args:
-            seed (int | None): 랜덤 시드.
-            options (dict | None): 추가 옵션.
+            seed (Optional[int]): 랜덤 시드.
+            options (Optional[Dict]): 추가 옵션.
 
         Returns:
-            tuple[np.ndarray, dict]: 초기 상태 벡터, 기타 info.
+            tuple[np.ndarray, Dict]: 초기 상태 벡터, 기타 info.
         """
         if options and "query" in options:
             self.current_query = options["query"]
         else:
             self.current_query = None
+
+        self.step_count = 0
+        self.current_session_simulated_logs.clear()
+        self._set_current_user_info(options.get("user_id", None))
 
         user_initial_data = self._get_user_data_for_embedding(
             self.current_user_original_logs_df, []
@@ -464,13 +480,13 @@ class RecEnv(gym.Env, BaseEnv):
         return state, {}
 
     def step(
-        self, action_list: List[tuple]
-    ) -> tuple[np.ndarray, float, bool, bool, dict]:
+        self, action_list: List[Tuple[str, int]]
+    ) -> tuple[np.ndarray, float, bool, bool, Dict]:
         """
         환경에 액션 리스트(top-k 추천)을 적용하고, 다음 상태 및 보상 등을 반환합니다.
 
         Args:
-            action_list (List[tuple]): [(콘텐츠 타입, 후보 인덱스), ...] top-k 개의 액션
+            action_list (List[Tuple[str, int]]): [(콘텐츠 타입, 후보 인덱스), ...] top-k 개의 액션
 
         Returns:
             tuple:
@@ -478,7 +494,7 @@ class RecEnv(gym.Env, BaseEnv):
                 - 보상 (float)
                 - done (bool): 에피소드 종료 여부
                 - truncated (bool): 트렁케이트 여부(사용 안함)
-                - info (dict): 기타 정보
+                - info (Dict): 기타 정보
         """
         self.step_count += 1
 
@@ -545,13 +561,13 @@ class RecEnv(gym.Env, BaseEnv):
         return next_state, total_reward, done, False, info
 
     def _simulate_user_response_for_topk(
-        self, selected_contents: List[dict]
+        self, selected_contents: List[Dict]
     ) -> List[Dict]:
         """
         선택된 top-k 콘텐츠에 대해 LLM 기반 사용자 반응 시뮬레이션
 
         Args:
-            selected_contents (List[dict]): 선택된 top-k 콘텐츠 리스트
+            selected_contents (List[Dict]): 선택된 top-k 콘텐츠 리스트
 
         Returns:
             List[Dict]: 각 콘텐츠별 반응 정보 리스트
@@ -590,9 +606,20 @@ class RecEnv(gym.Env, BaseEnv):
             )
             return self._create_fallback_responses_for_list(selected_contents)
 
-    def _create_fallback_responses_for_list(self, contents: List[dict]) -> List[Dict]:
-        """
-        콘텐츠 리스트에 대한 폴백 응답 생성
+    def _create_fallback_responses_for_list(self, contents: List[Dict]) -> List[Dict]:
+        """콘텐츠 리스트에 대한 폴백 응답을 생성합니다.
+
+        각 콘텐츠에 대해 30% 확률로 클릭되었다고 가정하며, 클릭된 경우 무작위 체류 시간을 설정합니다.
+
+        Args:
+            contents (List[Dict]): 추천된 콘텐츠 목록. 각 콘텐츠는 ID 등을 포함한 딕셔너리입니다.
+
+        Returns:
+            List[Dict]: 각 콘텐츠에 대한 사용자 반응을 나타내는 딕셔너리 리스트.
+                각 딕셔너리는 다음 필드를 포함합니다:
+                    - content_id (Any): 콘텐츠의 고유 ID
+                    - clicked (bool): 클릭 여부 (30% 확률)
+                    - dwell_time (int): 체류 시간 (초). 클릭 시 60~300, 미클릭 시 0
         """
         responses = []
         for content in contents:
@@ -609,11 +636,11 @@ class RecEnv(gym.Env, BaseEnv):
 
         return responses
 
-    def get_candidates(self) -> dict[str, list[Any]]:
+    def get_candidates(self) -> Dict[str, List[Any]]:
         """
         현 상태에서 추천 후보군을 반환합니다.get_candidatesget_candidates
 
         Returns:
-            dict[str, list[Any]]: {타입: 후보 콘텐츠 리스트}
+            Dict[str, List[Any]]: {타입: 후보 콘텐츠 리스트}
         """
         return self.candidate_generator.get_candidates(self.current_query)

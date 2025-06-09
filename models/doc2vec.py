@@ -4,7 +4,7 @@ import logging
 import pandas as pd
 from typing import List
 
-from components.db_utils import get_contents
+from components.database.db_utils import get_contents
 
 from gensim.models.doc2vec import Doc2Vec, TaggedDocument
 

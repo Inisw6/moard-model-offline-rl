@@ -48,7 +48,8 @@ class PersonaDB:
             if count > 0:
                 return  # 이미 데이터가 있으면 스킵
 
-        import json  
+        import json
+
         with open("data/default_personas.json", "r", encoding="utf-8") as f:
             default_personas = json.load(f)
 
@@ -57,10 +58,9 @@ class PersonaDB:
             persona_ = SimulationPersona(
                 persona_id=persona["persona_id"],
                 mbti=persona["mbti"],
-                investment_level=persona["investment_level"]
+                investment_level=persona["investment_level"],
             )
             self._insert_persona(persona_)
-
 
         with sqlite3.connect(self.db_path) as conn:
             for persona in default_personas:

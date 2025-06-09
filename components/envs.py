@@ -62,10 +62,7 @@ class RecEnv(gym.Env, BaseEnv):
         self.candidate_generator = candidate_generator
         self.reward_fn = reward_fn
 
-        # LLM 시뮬레이터는 필수로 제공되어야 함
-        if llm_simulator is None:
-            raise ValueError("LLM simulator must be provided")
-
+        assert llm_simulator is not None, "LLM simulator must be provided"
         self.llm_simulator = llm_simulator
         self.response_handler = LLMResponseHandler(debug=debug)
         self.current_query = None

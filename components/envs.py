@@ -645,7 +645,7 @@ class RecEnv(gym.Env, BaseEnv):
 
     def get_candidates(self) -> Dict[str, List[Any]]:
         """
-        현 상태에서 추천 후보군을 반환합니다.get_candidatesget_candidates
+        현 상태에서 추천 후보군을 반환합니다.
 
         Returns:
             Dict[str, List[Any]]: {타입: 후보 콘텐츠 리스트}

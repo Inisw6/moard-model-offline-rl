@@ -411,33 +411,42 @@ class RecEnv(gym.Env, BaseEnv):
     def _create_simulated_log_entry(
         self, content: Dict, event_type: str, dwell_time: Optional[int] = None
     ) -> Dict:
-        """
-        시뮬레이션용 로그 엔트리를 생성합니다.
+        """시뮬레이션용 로그 엔트리를 생성합니다.
 
         Args:
             content (Dict): 추천된 콘텐츠 정보.
-            event_type (str): 이벤트 타입 ("VIEW" 또는 "CLICK").
-            dwell_time (Optional[int]): LLM에서 계산된 체류시간(초). None이면 VIEW는 0, CLICK은 기본값.
+            event_type (str): "VIEW" 또는 "CLICK".
+            dwell_time (Optional[int]): None이면 VIEW→0, CLICK→랜덤(60~600).
 
         Returns:
             Dict: user_logs 포맷의 단일 로그 엔트리.
         """
-        # LLM에서 체류시간을 받았으면 사용, 아니면 이벤트 타입에 따라 처리
+        # 1) 콘텐츠 ID/타입 조회 (한 번만)
+        content_id = content["id"]
+        content_type = content["type"]
+
+        # 2) 클릭 여부 플래그
+        is_click = event_type == "CLICK"
+
+        # 3) 체류 시간 결정
         if dwell_time is None:
-            if event_type == "VIEW":
-                time_seconds = 0  # VIEW면 체류시간 0
-            else:  # CLICK
-                time_seconds = random.randint(60, 600)
+            time_seconds = random.randint(60, 600) if is_click else 0
         else:
             time_seconds = dwell_time
 
+        # 4) 클릭 확률 비율 산출 (함수 호출 최소화)
+        ratio = 1.0 if is_click else 0.1 + 0.8 * random.random()
+
+        # 5) 타임스탬프
+        timestamp = datetime.now(timezone.utc).isoformat()
+
         return {
             "user_id": self.current_user_id,
-            "content_id": content.get("id"),
+            "content_id": content_id,
             "event_type": event_type,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "content_actual_type": content.get("type"),
-            "ratio": 1.0 if event_type == "CLICK" else random.uniform(0.1, 0.9),
+            "timestamp": timestamp,
+            "content_actual_type": content_type,
+            "ratio": ratio,
             "time": time_seconds,
         }
 

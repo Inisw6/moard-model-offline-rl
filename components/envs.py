@@ -1,7 +1,7 @@
 import logging
 import random
 from datetime import datetime, timezone
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import gymnasium as gym
 from gymnasium import spaces
@@ -13,6 +13,7 @@ from components.registry import register
 from components.db_utils import get_contents, get_user_logs, get_users
 from components.llm_response_handler import LLMResponseHandler
 from components.llm_simu import LLMUserSimulator
+from components.persona_db import get_persona_db
 
 
 @register("rec_env")
@@ -33,8 +34,8 @@ class RecEnv(gym.Env, BaseEnv):
         reward_fn,
         context,
         llm_simulator: LLMUserSimulator,
-        user_id: int | None = None,
-        persona_id: int | None = None,
+        user_id: Optional[int] = None,
+        persona_id: Optional[int] = None,
         debug: bool = False,
     ) -> None:
         """
@@ -49,112 +50,129 @@ class RecEnv(gym.Env, BaseEnv):
             reward_fn: 보상 함수 객체.
             context: 추천 컨텍스트 관리자.
             llm_simulator (LLMUserSimulator): LLM 기반 사용자 시뮬레이터 (필수).
-            user_id (int | None): 환경에 할당할 사용자 ID. None이면 임의 선택.
-            persona_id (int | None): 시뮬레이션용 페르소나 ID. None이면 기본값 사용.
+            user_id (Optional[int]): 환경에 할당할 사용자 ID. None이면 임의 선택.
+            persona_id (Optional[int]): 시뮬레이션용 페르소나 ID. None이면 랜덤 선택.
             debug (bool): 디버깅 모드 활성화 여부.
         """
-
         super().__init__()
+        assert llm_simulator is not None, "LLM simulator must be provided"
+
+        # 핵심 속성 설정
         self.context = context
         self.max_steps = max_steps
         self.top_k = top_k
         self.embedder = embedder
         self.candidate_generator = candidate_generator
         self.reward_fn = reward_fn
-
-        assert llm_simulator is not None, "LLM simulator must be provided"
-        self.llm_simulator = llm_simulator
         self.response_handler = LLMResponseHandler(debug=debug)
         self.current_query = None
+        self.llm_simulator = llm_simulator
+        self.step_count = 0
 
-        # 페르소나 정보 설정
-        from .persona_db import get_persona_db
+        # 1) 페르소나 초기화
+        self._init_persona(persona_id, debug)
 
+        # 2) DB에서 DataFrame 로드
+        self._load_dataframes()
+
+        # 3) 사용자 정보 초기화
+        self._init_user(user_id)
+
+        # 4) observation / action space 초기화
+        self._init_spaces()
+
+    def _init_persona(self, persona_id: Optional[int], debug: bool) -> None:
+        """
+        페르소나를 로드하고, `self.persona_*` 속성을 설정합니다.
+        """
         persona_db = get_persona_db()
 
         if persona_id is None:
-            # 랜덤 페르소나 선택
             persona = persona_db.get_random_persona()
             if debug:
                 logging.info(
-                    f"🎲 랜덤 페르소나 선택: ID{persona.persona_id} ({persona.mbti}, 레벨{persona.investment_level})"
+                    "랜덤 페르소나 선택: ID%d (%s, 레벨%d)",
+                    persona.persona_id,
+                    persona.mbti,
+                    persona.investment_level,
                 )
         else:
-            # 지정된 페르소나 사용
             persona = persona_db.get_persona_by_id(persona_id)
             if not persona:
-                raise ValueError(f"Persona {persona_id} not found in database")
+                raise ValueError("Persona %d not found in database" % persona_id)
             if debug:
                 logging.info(
-                    f"🎭 지정 페르소나: ID{persona.persona_id} ({persona.mbti}, 레벨{persona.investment_level})"
+                    "지정 페르소나: ID%d (%s, 레벨%d)",
+                    persona.persona_id,
+                    persona.mbti,
+                    persona.investment_level,
                 )
 
-        # 페르소나 속성 저장
         self.persona_id = persona.persona_id
         self.persona_mbti = persona.mbti
         self.persona_investment_level = persona.investment_level
 
+    def _load_dataframes(self) -> None:
+        """
+        사용자 및 콘텐츠 로그를 위한 DataFrame을 DB로부터 불러와 속성에 저장합니다.
+        """
         self.all_users_df = get_users()
         self.all_user_logs_df = get_user_logs()
         self.all_contents_df = get_contents()
 
-        self.current_user_id = None
-        self.current_user_info = None
-        self.current_user_original_logs_df = (
-            pd.DataFrame()
-        )  # 현재 사용자의 DB 로그 (리셋 시 설정)
-        self.current_session_simulated_logs = (
-            []
-        )  # 현재 에피소드에서 시뮬레이션된 로그 [{dict}, ...]
+    def _init_user(self, user_id: Optional[int]) -> None:
+        """
+        현재 에피소드에 사용할 사용자 ID와 사용자 정보를 설정합니다.
+        """
+        self.current_user_original_logs_df = pd.DataFrame()
+        self.current_session_simulated_logs = []
 
         if user_id is None:
             if not self.all_users_df.empty:
                 self.current_user_id = self.all_users_df.iloc[0]["id"]
             else:
-                self.current_user_id = -1  # 더미 ID
-                logging.warning(
-                    "Warning: No users found in DB. Using dummy user_id = -1."
-                )
+                self.current_user_id = -1
+                logging.warning("No users found in DB. Using dummy user_id = -1.")
         else:
             self.current_user_id = user_id
 
         if self.current_user_id != -1 and not self.all_users_df.empty:
-            user_info_series = self.all_users_df[
-                self.all_users_df["id"] == self.current_user_id
-            ]
-            if not user_info_series.empty:
-                self.current_user_info = user_info_series.iloc[0].to_dict()
+            series = self.all_users_df[self.all_users_df["id"] == self.current_user_id]
+            if not series.empty:
+                self.current_user_info = series.iloc[0].to_dict()
             else:
                 logging.warning(
-                    f"Warning: User ID {self.current_user_id} not found. Using dummy user_info."
+                    "User ID %d not found. Using dummy user_info.", self.current_user_id
                 )
                 self.current_user_info = {
                     "id": self.current_user_id,
                     "uuid": "dummy_user_not_found",
                 }
-        elif self.current_user_id == -1:
+        else:
             self.current_user_info = {"id": -1, "uuid": "dummy_user"}
 
-        state_dim = embedder.output_dim()
+    def _init_spaces(self) -> None:
+        """
+        observation_space와 action_space를 정의합니다.
+        """
+        state_dim = self.embedder.output_dim()
         self._observation_space = spaces.Box(
             low=-np.inf, high=np.inf, shape=(state_dim,), dtype=np.float32
         )
 
-        # action_space를 top-k 전체 선택으로 변경
-        # action = [(content_type, index), (content_type, index), ...]
+        MAX_CANDIDATE_INDEX = 100
+        # action = [(type_idx, candidate_idx) for _ in range(top_k)]
         self._action_space = spaces.Tuple(
             [
                 spaces.Tuple(
                     (
                         spaces.Discrete(len(self.embedder.content_types)),
-                        spaces.Discrete(100),  # 충분히 큰 후보 인덱스 범위
+                        spaces.Discrete(MAX_CANDIDATE_INDEX),
                     )
                 )
-                for _ in range(top_k)
+                for _ in range(self.top_k)
             ]
         )
-
-        self.step_count = 0
 
     @property
     def observation_space(self) -> spaces.Box:

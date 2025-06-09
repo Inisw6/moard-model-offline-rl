@@ -66,7 +66,7 @@ class ExperimentRunner:
         self.set_seed(seed)
         cfg: Dict[str, Any] = self.cfg
 
-        # Embedder / CandidateGenerator / Reward / Context / Env / Agent 초기화
+        # Embedder / CandidateGenerator / Reward / Context 초기화
         embedder = make(cfg["embedder"]["type"], **cfg["embedder"]["params"])
         candgen = make(
             cfg["candidate_generator"]["type"], **cfg["candidate_generator"]["params"]
@@ -74,6 +74,11 @@ class ExperimentRunner:
         reward_fn = make(cfg["reward_fn"]["type"], **cfg["reward_fn"]["params"])
         context = RecContextManager(cfg["env"]["params"]["cold_start"])
 
+        # LLM 시뮬레이터 생성
+        from components.llm_simu import LLMUserSimulator
+        llm_simulator = LLMUserSimulator(**cfg["llm_simulator"]["params"])
+        
+        # 환경 생성 (LLM 시뮬레이터 포함)
         env = make(
             cfg["env"]["type"],
             **cfg["env"]["params"],
@@ -81,7 +86,10 @@ class ExperimentRunner:
             candidate_generator=candgen,
             reward_fn=reward_fn,
             context=context,
+            llm_simulator=llm_simulator,  # LLM 시뮬레이터 전달
         )
+        
+        # 에이전트 생성
         agent = make(
             cfg["agent"]["type"],
             user_dim=embedder.user_dim,
@@ -92,16 +100,14 @@ class ExperimentRunner:
 
         total_eps: int = cfg["experiment"]["total_episodes"]
         max_recs: int = cfg["experiment"]["max_recommendations"]
-
-        episode_metrics = []
-
+        
         episode_metrics = []
 
         for ep in range(total_eps):
             try:
                 logging.info(f"\n--- Episode {ep+1}/{total_eps} (seed={seed}) ---")
                 # 기존처럼 쿼리 하드코딩 (나중에 변경 가능)
-                query: str = "종목12 뉴스"
+                query: str = "삼성전자"
 
                 state, _ = env.reset(options={"query": query})
                 done: bool = False
@@ -125,35 +131,34 @@ class ExperimentRunner:
                         q_values, top_k=max_recs
                     )
 
+                    # 새로운 환경: action_list 전체를 한 번에 step으로 전달
+                    step_result = env.step(enforce_list)
+                    if (
+                        not isinstance(step_result, (tuple, list))
+                        or len(step_result) != 5
+                    ):
+                        raise ValueError(
+                            "env.step must return (next_state, reward, done, truncated, info)"
+                        )
+
+                    next_state, total_reward, step_done, truncated, info = step_result
+                    done = step_done or truncated
+                    rec_count += len(enforce_list)
+
+                    logging.info(
+                        f"    Recommended {len(enforce_list)} contents → total_reward={total_reward}, done={done}"
+                    )
+                    logging.info(f"    Clicks: {info.get('total_clicks', 0)}/{len(enforce_list)}")
+
+                    # RL 학습을 위한 데이터 저장 (각 선택된 콘텐츠별로)
                     for ctype, idx in enforce_list:
                         cands = cand_dict.get(ctype, [])
                         if idx < 0 or idx >= len(cands):
-                            logging.warning(
-                                f"Invalid candidate index {idx} for type '{ctype}'. Skipping."
-                            )
                             continue
 
                         selected = cands[idx]
                         cid = getattr(selected, "id", id(selected))
                         selected_emb = emb_cache[cid]
-
-                        step_result = env.step((ctype, idx))
-                        if (
-                            not isinstance(step_result, (tuple, list))
-                            or len(step_result) != 5
-                        ):
-                            raise ValueError(
-                                "env.step must return (next_state, reward, done, truncated, info)"
-                            )
-
-                        next_state, r, step_done, truncated, info = step_result
-                        done = step_done or truncated
-                        total_reward += r
-                        rec_count += 1
-
-                        logging.info(
-                            f"    Recommended: (type={ctype}, idx={idx}) → reward={r}, done={done}"
-                        )
 
                         next_cand_dict: Dict[str, List[Any]] = env.get_candidates()
                         next_cembs: Dict[str, List[Any]] = {
@@ -165,15 +170,16 @@ class ExperimentRunner:
                             ]
                             for t, cs in next_cand_dict.items()
                         }
+                        
+                        # 개별 콘텐츠별 보상을 전체 보상에서 분할 (단순화)
+                        individual_reward = total_reward / len(enforce_list)
+                        
                         agent.store(
-                            state, selected_emb, r, next_state, next_cembs, done
+                            state, selected_emb, individual_reward, next_state, next_cembs, done
                         )
+
                         agent.learn()
-
                         state = next_state
-
-                        if done:
-                            break
 
                 logging.info(
                     f"--- Episode {ep+1} End. Agent Epsilon: {getattr(agent, 'epsilon', float('nan')):.3f} ---"
@@ -185,6 +191,9 @@ class ExperimentRunner:
                         "query": query,
                         "total_reward": total_reward,
                         "recommendations": rec_count,
+                        "clicks": info.get("total_clicks", 0),
+                        "click_ratio": info.get("total_clicks", 0) / rec_count if rec_count else 0,
+                        "epsilon": getattr(agent, "epsilon", float('nan')),
                         "datetime": datetime.now().isoformat(),
                     }
                 )

@@ -23,7 +23,7 @@ class SimpleUserEmbedder(BaseUserEmbedder):
     def __init__(
         self,
         user_dim: int = 30,
-        all_contents_df: Optional[object] = None,  # 의존성 주입 가능
+        all_contents_df: Optional[object] = None,
     ):
         """
         Args:
@@ -31,7 +31,7 @@ class SimpleUserEmbedder(BaseUserEmbedder):
             all_contents_df (Optional[pandas.DataFrame]): 테스트용으로 외부에서 전달할 콘텐츠 DataFrame.
                                                          None일 경우 get_contents() 호출.
         """
-        # 의존성 주입된 DataFrame이 없다면 실제 DB에서 가져옴
+        # 생성시 인자로 전달받은 DataFrame이 없다면 실제 DB에서 가져옴
         self.all_contents_df = (
             all_contents_df if all_contents_df is not None else get_contents()
         )

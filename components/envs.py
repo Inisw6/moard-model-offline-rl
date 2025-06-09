@@ -32,9 +32,9 @@ class RecEnv(gym.Env, BaseEnv):
         candidate_generator,
         reward_fn,
         context,
-        llm_simulator: LLMUserSimulator,  # 필수 인자
+        llm_simulator: LLMUserSimulator,
         user_id: int | None = None,
-        persona_id: int | None = None,  # 시뮬레이션용 페르소나 ID
+        persona_id: int | None = None,
         debug: bool = False,
     ) -> None:
         """
@@ -79,7 +79,7 @@ class RecEnv(gym.Env, BaseEnv):
             # 랜덤 페르소나 선택
             persona = persona_db.get_random_persona()
             if debug:
-                print(
+                logging.info(
                     f"🎲 랜덤 페르소나 선택: ID{persona.persona_id} ({persona.mbti}, 레벨{persona.investment_level})"
                 )
         else:
@@ -88,7 +88,7 @@ class RecEnv(gym.Env, BaseEnv):
             if not persona:
                 raise ValueError(f"Persona {persona_id} not found in database")
             if debug:
-                print(
+                logging.info(
                     f"🎭 지정 페르소나: ID{persona.persona_id} ({persona.mbti}, 레벨{persona.investment_level})"
                 )
 

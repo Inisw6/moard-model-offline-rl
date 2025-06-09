@@ -33,7 +33,7 @@ class RecEnv(gym.Env, BaseEnv):
         candidate_generator,
         reward_fn,
         context,
-        llm_simulator: LLMUserSimulator,
+        llm_simulator: Optional[LLMUserSimulator] = None,
         user_id: Optional[int] = None,
         persona_id: Optional[int] = None,
         debug: bool = False,
@@ -49,7 +49,7 @@ class RecEnv(gym.Env, BaseEnv):
             candidate_generator: 추천 후보군 생성 객체.
             reward_fn: 보상 함수 객체.
             context: 추천 컨텍스트 관리자.
-            llm_simulator (LLMUserSimulator): LLM 기반 사용자 시뮬레이터 (필수).
+            llm_simulator (Optional[LLMUserSimulator]): LLM 기반 사용자 시뮬레이터. None이면 룰 기반으로 동작.
             user_id (Optional[int]): 환경에 할당할 사용자 ID. None이면 임의 선택.
             persona_id (Optional[int]): 시뮬레이션용 페르소나 ID. None이면 랜덤 선택.
             debug (bool): 디버깅 모드 활성화 여부.
@@ -60,7 +60,6 @@ class RecEnv(gym.Env, BaseEnv):
         assert candidate_generator is not None, "Candidate generator must be provided"
         assert reward_fn is not None, "Reward function must be provided"
         assert context is not None, "Context manager must be provided"
-        assert llm_simulator is not None, "LLM simulator must be provided"
 
         # 속성 설정
         self.context = context
@@ -70,21 +69,28 @@ class RecEnv(gym.Env, BaseEnv):
         self.embedder = embedder
         self.candidate_generator = candidate_generator
         self.reward_fn = reward_fn
-        self.response_handler = LLMResponseHandler(debug=debug)
         self.current_query = None
         self.llm_simulator = llm_simulator
         self.step_count = 0
+        self.use_llm_simulator = llm_simulator is not None
 
-        # 1) 페르소나 초기화
-        self._init_persona(persona_id, debug)
+        # LLM 시뮬레이터 사용 여부에 따라 관련 컴포넌트 초기화
+        if self.use_llm_simulator:
+            self.response_handler = LLMResponseHandler(debug=debug)
+            self._init_persona(persona_id, debug)
+        else:
+            self.response_handler = None
+            self.persona_id = None
+            self.persona_mbti = None
+            self.persona_investment_level = None
 
-        # 2) DB에서 DataFrame 로드
+        # DB에서 DataFrame 로드
         self._load_dataframes()
 
-        # 3) 사용자 정보 초기화
+        # 사용자 정보 초기화
         self._init_user(user_id)
 
-        # 4) observation / action space 초기화
+        # observation / action space 초기화
         self._init_spaces()
 
     def _init_persona(self, persona_id: Optional[int], debug: bool) -> None:
@@ -318,83 +324,63 @@ class RecEnv(gym.Env, BaseEnv):
                 )
         return selected_contents
 
-    def _simulate_user_response(self, all_candidates: Dict) -> List[Dict]:
+    def _simulate_llm_response(self, selected_contents: List[Dict]) -> List[Dict]:
         """
-        LLM 기반으로 사용자 반응을 시뮬레이션합니다.
+        선택된 top-k 콘텐츠에 대해 LLM 기반 사용자 반응을 시뮬레이션합니다.
+        오류 발생 시 룰 기반 시뮬레이션으로 대체됩니다.
 
         Args:
-            all_candidates (Dict): 전체 후보군 {타입: [콘텐츠, ...]}.
+            selected_contents (List[Dict]): 선택된 top-k 콘텐츠 리스트
 
         Returns:
-            List[Dict]: 각 후보별 반응 정보 리스트
-                       [{"content_id": str, "clicked": bool, "dwell_time": int}, ...]
+            List[Dict]: 각 콘텐츠별 반응 정보 리스트
         """
-        if self.llm_simulator is None:
-            # LLM 시뮬레이터가 없으면 기본 확률 기반으로 폴백
-            # todo: llm 시뮬레이터는 기본인데 이게 가능한건가?
-            logging.warning(
-                "LLM simulator not available. Falling back to random simulation."
-            )
-            return self._create_fallback_responses(all_candidates)
-
+        assert self.llm_simulator is not None and self.response_handler is not None
         try:
-            # 전체 후보군을 flat list로 변환
-            all_contents = [c for contents in all_candidates.values() for c in contents]
-
-            logging.debug("Sending %d contents to LLM simulator", len(all_contents))
+            logging.debug(
+                "Sending %d selected contents to LLM simulator", len(selected_contents)
+            )
 
             # 페르소나 정보 사용
-            persona_id = self.persona_id
-            mbti = self.persona_mbti
-            investment_level = self.persona_investment_level
-
-            # LLM 시뮬레이터 호출 - 원본 텍스트 반환
             raw_response = self.llm_simulator.simulate_user_response(
-                persona_id=persona_id,
-                mbti=mbti,
-                investment_level=investment_level,
-                recommended_contents=all_contents,
+                persona_id=self.persona_id,
+                mbti=self.persona_mbti,
+                investment_level=self.persona_investment_level,
+                recommended_contents=selected_contents,
                 current_context={
                     "step_count": self.step_count,
                     "session_logs": self.current_session_simulated_logs,
-                    "all_candidate_types": list(all_candidates.keys()),
                 },
             )
 
-            # LLMResponseHandler를 사용하여 응답 처리 - 모든 후보에 대한 반응 추출
+            # LLMResponseHandler를 사용하여 응답 처리
             return self.response_handler.extract_all_responses(
-                llm_raw_text=raw_response, all_contents=all_contents
+                llm_raw_text=raw_response, all_contents=selected_contents
             )
 
         except Exception as e:
             logging.error(
-                f"LLM simulation error: {e}. Falling back to random simulation."
+                "LLM simulation error: %s. Falling back to random simulation.", e
             )
-            return self._create_fallback_responses(all_candidates)
+            return self._simulate_random_response(selected_contents)
 
-    def _create_fallback_responses(self, all_candidates: Dict) -> List[Dict]:
-        """
-        LLM 시뮬레이터가 실패했을 때 사용할 폴백(랜덤) 응답을 생성합니다.
+    def _simulate_random_response(self, contents: List[Dict]) -> List[Dict]:
+        """룰 기반(랜덤)으로 사용자 반응을 시뮬레이션합니다.
+
+        각 콘텐츠에 대해 30% 확률로 클릭되었다고 가정하며, 클릭된 경우 무작위 체류 시간을 설정합니다.
 
         Args:
-            all_candidates (Dict): 전체 추천 후보군 딕셔너리.
-                - 키: 콘텐츠 타입(str 등)
-                - 값: 각 타입별 추천 콘텐츠 리스트(List[Dict])
+            contents (List[Dict]): 추천된 콘텐츠 목록. 각 콘텐츠는 ID 등을 포함한 딕셔너리입니다.
 
         Returns:
-            List[Dict]: 각 콘텐츠에 대한 폴백 응답의 리스트.
-                각 응답은 아래 필드를 포함합니다:
-                    - content_id (Any): 콘텐츠의 ID
+            List[Dict]: 각 콘텐츠에 대한 사용자 반응을 나타내는 딕셔너리 리스트.
+                각 딕셔너리는 다음 필드를 포함합니다:
+                    - content_id (Any): 콘텐츠의 고유 ID
                     - clicked (bool): 클릭 여부 (30% 확률)
-                    - dwell_time (int): 체류 시간(초). 클릭 시 60~300 랜덤, 미클릭 시 0
+                    - dwell_time (int): 체류 시간 (초). 클릭 시 60~300, 미클릭 시 0
         """
-        all_contents = []
-        for content_type, contents in all_candidates.items():
-            all_contents.extend(contents)
-
         responses = []
-        for content in all_contents:
-            # 랜덤하게 일부만 클릭
+        for content in contents:
             clicked = random.random() < 0.3  # 30% 확률로 클릭
             dwell_time = random.randint(60, 300) if clicked else 0
 
@@ -521,8 +507,11 @@ class RecEnv(gym.Env, BaseEnv):
             logging.warning("No valid contents selected from actions %s", action_list)
             return user_state, 0.0, True, False, {}
 
-        # 4) LLM 시뮬레이션: 선택된 top-k 콘텐츠에 대해
-        all_responses = self._simulate_user_response_for_topk(selected_contents)
+        # 4) 사용자 반응 시뮬레이션
+        if self.use_llm_simulator:
+            all_responses = self._simulate_llm_response(selected_contents)
+        else:
+            all_responses = self._simulate_random_response(selected_contents)
 
         # 5) 보상 계산: 모든 응답을 사용하여 보상 계산
         total_reward = self.reward_fn.calculate_from_topk_responses(
@@ -566,82 +555,6 @@ class RecEnv(gym.Env, BaseEnv):
             "total_clicks": sum(1 for r in all_responses if r["clicked"]),
         }
         return next_state, total_reward, done, False, info
-
-    def _simulate_user_response_for_topk(
-        self, selected_contents: List[Dict]
-    ) -> List[Dict]:
-        """
-        선택된 top-k 콘텐츠에 대해 LLM 기반 사용자 반응 시뮬레이션
-
-        Args:
-            selected_contents (List[Dict]): 선택된 top-k 콘텐츠 리스트
-
-        Returns:
-            List[Dict]: 각 콘텐츠별 반응 정보 리스트
-        """
-        if self.llm_simulator is None:
-            logging.warning(
-                "LLM simulator not available. Falling back to random simulation."
-            )
-            return self._create_fallback_responses_for_list(selected_contents)
-
-        try:
-            logging.debug(
-                "Sending %d selected contents to LLM simulator", len(selected_contents)
-            )
-
-            # 페르소나 정보 사용
-            raw_response = self.llm_simulator.simulate_user_response(
-                persona_id=self.persona_id,
-                mbti=self.persona_mbti,
-                investment_level=self.persona_investment_level,
-                recommended_contents=selected_contents,
-                current_context={
-                    "step_count": self.step_count,
-                    "session_logs": self.current_session_simulated_logs,
-                },
-            )
-
-            # LLMResponseHandler를 사용하여 응답 처리
-            return self.response_handler.extract_all_responses(
-                llm_raw_text=raw_response, all_contents=selected_contents
-            )
-
-        except Exception as e:
-            logging.error(
-                "LLM simulation error: %s. Falling back to random simulation.", e
-            )
-            return self._create_fallback_responses_for_list(selected_contents)
-
-    def _create_fallback_responses_for_list(self, contents: List[Dict]) -> List[Dict]:
-        """콘텐츠 리스트에 대한 폴백 응답을 생성합니다.
-
-        각 콘텐츠에 대해 30% 확률로 클릭되었다고 가정하며, 클릭된 경우 무작위 체류 시간을 설정합니다.
-
-        Args:
-            contents (List[Dict]): 추천된 콘텐츠 목록. 각 콘텐츠는 ID 등을 포함한 딕셔너리입니다.
-
-        Returns:
-            List[Dict]: 각 콘텐츠에 대한 사용자 반응을 나타내는 딕셔너리 리스트.
-                각 딕셔너리는 다음 필드를 포함합니다:
-                    - content_id (Any): 콘텐츠의 고유 ID
-                    - clicked (bool): 클릭 여부 (30% 확률)
-                    - dwell_time (int): 체류 시간 (초). 클릭 시 60~300, 미클릭 시 0
-        """
-        responses = []
-        for content in contents:
-            clicked = random.random() < 0.3  # 30% 확률로 클릭
-            dwell_time = random.randint(60, 300) if clicked else 0
-
-            responses.append(
-                {
-                    "content_id": content.get("id"),
-                    "clicked": clicked,
-                    "dwell_time": dwell_time,
-                }
-            )
-
-        return responses
 
     def get_candidates(self) -> Dict[str, List[Any]]:
         """

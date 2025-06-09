@@ -314,7 +314,7 @@ class RecEnv(gym.Env, BaseEnv):
                 selected_contents.append(cand_dict[ctype][cand_idx])
             else:
                 logging.warning(
-                    f"Invalid action ({ctype}, {cand_idx}). Candidate not found."
+                    "Invalid action (%s, %d). Candidate not found.", ctype, cand_idx
                 )
         return selected_contents
 
@@ -341,7 +341,7 @@ class RecEnv(gym.Env, BaseEnv):
             # 전체 후보군을 flat list로 변환
             all_contents = [c for contents in all_candidates.values() for c in contents]
 
-            logging.debug(f"Sending {len(all_contents)} contents to LLM simulator")
+            logging.debug("Sending %d contents to LLM simulator", len(all_contents))
 
             # 페르소나 정보 사용
             persona_id = self.persona_id
@@ -434,7 +434,7 @@ class RecEnv(gym.Env, BaseEnv):
         else:
             time_seconds = dwell_time
 
-        # 4) 클릭 확률 비율 산출 (함수 호출 최소화)
+        # 4) 클릭 확률 비율 산출
         ratio = 1.0 if is_click else 0.1 + 0.8 * random.random()
 
         # 5) 타임스탬프
@@ -518,7 +518,7 @@ class RecEnv(gym.Env, BaseEnv):
         # 3) 액션 리스트에 따라 실제 추천 콘텐츠들 선택 (top-k)
         selected_contents = self._select_contents_from_action(cand_dict, action_list)
         if not selected_contents:
-            logging.warning(f"No valid contents selected from actions {action_list}")
+            logging.warning("No valid contents selected from actions %s", action_list)
             return user_state, 0.0, True, False, {}
 
         # 4) LLM 시뮬레이션: 선택된 top-k 콘텐츠에 대해
@@ -587,7 +587,7 @@ class RecEnv(gym.Env, BaseEnv):
 
         try:
             logging.debug(
-                f"Sending {len(selected_contents)} selected contents to LLM simulator"
+                "Sending %d selected contents to LLM simulator", len(selected_contents)
             )
 
             # 페르소나 정보 사용
@@ -609,7 +609,7 @@ class RecEnv(gym.Env, BaseEnv):
 
         except Exception as e:
             logging.error(
-                f"LLM simulation error: {e}. Falling back to random simulation."
+                "LLM simulation error: %s. Falling back to random simulation.", e
             )
             return self._create_fallback_responses_for_list(selected_contents)
 

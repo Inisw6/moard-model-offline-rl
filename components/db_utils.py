@@ -18,7 +18,7 @@ from sqlalchemy.types import Enum as SAEnum
 # UUID 사용 시 PostgreSQL dialect
 # from sqlalchemy.dialects.postgresql import UUID  # SQLite는 UUID를 직접 지원하지 않음
 # SQLite 데이터베이스 설정
-DB_PATH: str = "sample_recsys.db"
+DB_PATH: str = "./data/sample_recsys.db"
 DATABASE_URL = f"sqlite:///{DB_PATH}"
 
 Base = declarative_base()

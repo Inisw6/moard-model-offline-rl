@@ -185,6 +185,9 @@ class ExperimentRunner:
                         "query": query,
                         "total_reward": total_reward,
                         "recommendations": rec_count,
+                        "clicks": info.get("total_clicks", 0),
+                        "click_ratio": info.get("total_clicks", 0) / rec_count if rec_count else 0,
+                        "epsilon": getattr(agent, "epsilon", float('nan')),
                         "datetime": datetime.now().isoformat(),
                     }
                 )

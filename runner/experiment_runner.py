@@ -83,7 +83,10 @@ class ExperimentRunner:
         # LLM 시뮬레이터 생성
         from components.simulation.llm_simu import LLMUserSimulator
 
-        llm_simulator = LLMUserSimulator(**cfg["llm_simulator"]["params"])
+        if "llm_simulator" not in cfg or "params" not in cfg["llm_simulator"]:
+            llm_simulator = None
+        else:
+            llm_simulator = LLMUserSimulator(**cfg["llm_simulator"]["params"])
 
         # 환경 생성 (LLM 시뮬레이터 포함)
         env = make(

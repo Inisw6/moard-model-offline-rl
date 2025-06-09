@@ -5,13 +5,13 @@ from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional
 
 
-# @dataclass
-# class SimulationPersona:
-#     """시뮬레이션용 페르소나 정보"""
+@dataclass
+class SimulationPersona:
+    """시뮬레이션용 페르소나 정보"""
 
-#     persona_id: int
-#     mbti: str
-#     investment_level: int  # 1: 초보, 2: 중급, 3: 고급
+    persona_id: int
+    mbti: str
+    investment_level: int  # 1: 초보, 2: 중급, 3: 고급
 
 
 class PersonaDB:
@@ -52,6 +52,14 @@ class PersonaDB:
         with open("data/default_personas.json", "r", encoding="utf-8") as f:
             default_personas = json.load(f)
 
+        for persona in default_personas:
+            # 각 페르소나를 SimulationPersona 객체로 변환
+            persona_ = SimulationPersona(
+                persona_id=persona["persona_id"],
+                mbti=persona["mbti"],
+                investment_level=persona["investment_level"]
+            )
+            self._insert_persona(persona_)
 
         # default_personas = [
         #     # ─── INFP (13명) ───

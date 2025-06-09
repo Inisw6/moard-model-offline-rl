@@ -1,6 +1,6 @@
+import importlib
 import os
 import pkgutil
-import importlib
 
 _REGISTRY = {}
 

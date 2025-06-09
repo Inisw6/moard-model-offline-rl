@@ -1,23 +1,22 @@
-import sqlite3
+import uuid
+
 import pandas as pd
 from sqlalchemy import (
-    create_engine,
+    BigInteger,
     Column,
+    DateTime,
+    Float,
+    ForeignKey,
     Integer,
     String,
     Text,
-    DateTime,
-    Float,
-    BigInteger,
-    Enum as SAEnum,
-    ForeignKey,
+    create_engine,
 )
-from sqlalchemy.orm import sessionmaker, relationship, declarative_base
+from sqlalchemy.orm import declarative_base, relationship, sessionmaker
+from sqlalchemy.types import Enum as SAEnum
 
-# 추후 UUID 사용 시 추가 해야함
-# from sqlalchemy.dialects.postgresql import UUID # SQLite는 UUID를 직접 지원하지 않음
-import uuid
-
+# UUID 사용 시 PostgreSQL dialect
+# from sqlalchemy.dialects.postgresql import UUID  # SQLite는 UUID를 직접 지원하지 않음
 # SQLite 데이터베이스 설정
 DB_PATH: str = "sample_recsys.db"
 DATABASE_URL = f"sqlite:///{DB_PATH}"

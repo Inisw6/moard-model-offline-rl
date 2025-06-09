@@ -1,4 +1,5 @@
 from typing import Dict, List
+
 from components.base import BaseRewardFn
 from components.registry import register
 
@@ -33,32 +34,29 @@ class DefaultRewardFunction(BaseRewardFn):
         return reward
 
     def calculate_from_responses(
-        self, 
-        all_responses: List[Dict], 
-        selected_content: Dict, 
-        all_candidates: Dict
+        self, all_responses: List[Dict], selected_content: Dict, all_candidates: Dict
     ) -> float:
         """
         모든 후보에 대한 LLM 응답을 기반으로 보상을 계산합니다.
-        
+
         Args:
             all_responses: 모든 후보에 대한 LLM 응답 리스트
                           [{"content_id": str, "clicked": bool, "dwell_time": int}, ...]
             selected_content: 선택된 콘텐츠 정보
             all_candidates: 전체 후보군 정보
-            
+
         Returns:
             float: 계산된 보상 값
         """
         total_reward = 0.0
         selected_content_id = selected_content.get("id")
-        
+
         # 각 후보에 대한 응답을 평가
         for response in all_responses:
             content_id = response["content_id"]
             clicked = response["clicked"]
             dwell_time = response["dwell_time"]
-            
+
             # 기본 보상 계산
             if clicked:
                 content_reward = 1.0  # 클릭 보상
@@ -66,42 +64,42 @@ class DefaultRewardFunction(BaseRewardFn):
                 content_reward += min(dwell_time * 0.001, 0.5)  # 최대 0.5 추가
             else:
                 content_reward = 0.1  # VIEW 보상
-            
+
             # 선택된 콘텐츠에 대해서는 가중치 적용
             if content_id == selected_content_id:
                 total_reward += content_reward * 1.0  # 선택된 콘텐츠는 100% 반영
             else:
                 # 선택되지 않은 콘텐츠의 반응도 일부 반영 (탐색 장려)
                 if clicked:
-                    total_reward += content_reward * 0.1  # 클릭된 다른 콘텐츠는 10% 반영
+                    total_reward += (
+                        content_reward * 0.1
+                    )  # 클릭된 다른 콘텐츠는 10% 반영
                 else:
                     total_reward += content_reward * 0.05  # VIEW만 된 콘텐츠는 5% 반영
-        
+
         return total_reward
 
     def calculate_from_topk_responses(
-        self, 
-        all_responses: List[Dict], 
-        selected_contents: List[Dict]
+        self, all_responses: List[Dict], selected_contents: List[Dict]
     ) -> float:
         """
         선택된 top-k 콘텐츠에 대한 LLM 응답을 기반으로 보상을 계산합니다.
-        
+
         Args:
             all_responses: top-k 콘텐츠에 대한 LLM 응답 리스트
                           [{"content_id": str, "clicked": bool, "dwell_time": int}, ...]
             selected_contents: 선택된 top-k 콘텐츠 리스트
-            
+
         Returns:
             float: 계산된 총 보상 값
         """
         total_reward = 0.0
-        
+
         # 각 응답에 대한 보상 계산
         for response in all_responses:
             clicked = response["clicked"]
             dwell_time = response["dwell_time"]
-            
+
             # 기본 보상 계산
             if clicked:
                 content_reward = 1.0  # 클릭 보상
@@ -109,7 +107,7 @@ class DefaultRewardFunction(BaseRewardFn):
                 content_reward += min(dwell_time * 0.001, 0.5)  # 최대 0.5 추가
             else:
                 content_reward = 0.1  # VIEW 보상
-            
+
             total_reward += content_reward
-        
+
         return total_reward

@@ -1,15 +1,15 @@
-import numpy as np
 import json
 import logging
 import re
 from typing import Optional
 
-from components.db_utils import get_contents
-from components.base import BaseUserEmbedder, BaseContentEmbedder, BaseEmbedder
-from components.registry import register
-
-from sentence_transformers import SentenceTransformer
+import numpy as np
 from gensim.models.doc2vec import Doc2Vec
+from sentence_transformers import SentenceTransformer
+
+from components.base import BaseContentEmbedder, BaseEmbedder, BaseUserEmbedder
+from components.db_utils import get_contents
+from components.registry import register
 
 
 @register("simple_user")

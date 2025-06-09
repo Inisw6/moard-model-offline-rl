@@ -1,17 +1,17 @@
-import json
-import random
-import requests
-from typing import Dict, List, Optional, Callable
-from datetime import datetime
+import logging
 from dataclasses import dataclass
 from functools import lru_cache
-import logging
+from typing import Dict, List, Optional
 
-from .personas import PersonaConfig, create_persona_from_user_data
+import requests
+
+from components.personas import PersonaConfig, create_persona_from_user_data
+
 
 @dataclass
 class ContentInfo:
     """콘텐츠 정보를 위한 데이터 클래스"""
+
     index: int
     content_id: str
     type: str
@@ -19,26 +19,27 @@ class ContentInfo:
     url: str
     description: str
 
+
 class LLMUserSimulator:
     """
     Ollama를 활용한 사용자 시뮬레이터.
-    페르소나 DB에서 가져온 MBTI와 투자 레벨로 PersonaConfig를 생성하여 
+    페르소나 DB에서 가져온 MBTI와 투자 레벨로 PersonaConfig를 생성하여
     콘텐츠 추천에 대한 반응을 시뮬레이션합니다.
     """
-    
+
     # 콘텐츠 타입별 기본 체류시간 범위 (초)
     CONTENT_DWELL_TIMES = {
-        "youtube": (60, 600),    # 1-10분
-        "blog": (90, 480),       # 1.5-8분
-        "news": (30, 300),       # 30초-5분
-        "default": (30, 300)
+        "youtube": (60, 600),  # 1-10분
+        "blog": (90, 480),  # 1.5-8분
+        "news": (30, 300),  # 30초-5분
+        "default": (30, 300),
     }
-    
+
     def __init__(
-        self, 
+        self,
         ollama_url: str = "http://localhost:11434",
         model: str = "llama3.2:2b",  # 기본값, experiment.yaml에서 오버라이드됨
-        debug: bool = False
+        debug: bool = False,
     ):
         """
         Args:
@@ -46,22 +47,18 @@ class LLMUserSimulator:
             model (str): 사용할 모델명
             debug (bool): 디버깅 출력 여부
         """
-        self.ollama_url = ollama_url.rstrip('/')  # 후행 슬래시 제거
+        self.ollama_url = ollama_url.rstrip("/")  # 후행 슬래시 제거
         self.model = model
         self.debug = debug
-        
+
         # 연결 상태 캐싱
         self._connection_checked = False
         self._is_available = False
-        
+
         # API 설정
         self._api_config = {
             "timeout": 30,
-            "options": {
-                "temperature": 0.7,
-                "top_p": 0.9,
-                "max_tokens": 1000
-            }
+            "options": {"temperature": 0.7, "top_p": 0.9, "max_tokens": 1000},
         }
 
     @property
@@ -71,7 +68,7 @@ class LLMUserSimulator:
             self._is_available = self._test_ollama_connection()
             self._connection_checked = True
         return self._is_available
-    
+
     @lru_cache(maxsize=1)
     def _test_ollama_connection(self) -> bool:
         """Ollama 서버 연결 테스트 (캐싱됨)"""
@@ -80,75 +77,75 @@ class LLMUserSimulator:
             if response.status_code != 200:
                 logging.warning(f"Ollama 서버 응답 오류: {response.status_code}")
                 return False
-                
+
             models = response.json().get("models", [])
             model_names = [model.get("name", "") for model in models]
-            
+
             if self.model not in model_names:
-                logging.warning(f"모델 {self.model}을 찾을 수 없습니다. 사용 가능한 모델: {model_names}")
+                logging.warning(
+                    f"모델 {self.model}을 찾을 수 없습니다. 사용 가능한 모델: {model_names}"
+                )
                 return False
-                
+
             logging.info(f"Ollama 서버 연결 성공. 모델 {self.model} 사용 가능.")
             return True
-            
+
         except requests.RequestException as e:
             logging.warning(f"Ollama 서버 연결 실패: {e}")
             return False
-    
+
     def simulate_user_response(
-        self, 
+        self,
         persona_id: int,
         mbti: str,
         investment_level: int,
         recommended_contents: List[Dict],
-        current_context: Optional[Dict] = None
+        current_context: Optional[Dict] = None,
     ) -> str:
         """
         페르소나 정보를 기반으로 사용자 반응 시뮬레이션.
-        
+
         Args:
             persona_id: 페르소나 ID
             mbti: MBTI 유형
             investment_level: 투자 레벨 (1=초보, 2=중급, 3=고급)
             recommended_contents: 추천된 콘텐츠 리스트
             current_context: 현재 컨텍스트 정보 (옵션)
-            
+
         Returns:
             str: LLM 원본 응답 텍스트
         """
         # 페르소나 생성
         persona = create_persona_from_user_data(
-            user_id=persona_id,
-            mbti=mbti,
-            investment_level=investment_level
+            user_id=persona_id, mbti=mbti, investment_level=investment_level
         )
 
         if not recommended_contents:
             return ""
-        
+
         # Ollama 연결 확인
         if not self.is_available:
             raise RuntimeError("Ollama 서버를 사용할 수 없습니다.")
-        
+
         # LLM 기반 시뮬레이션 실행
         return self._ollama_based_simulation(
             persona, recommended_contents, current_context
         )
 
     def _ollama_based_simulation(
-        self, 
-        persona: PersonaConfig, 
+        self,
+        persona: PersonaConfig,
         recommended_contents: List[Dict],
-        current_context: Optional[Dict] = None
+        current_context: Optional[Dict] = None,
     ) -> str:
         """Ollama를 활용한 사용자 반응 시뮬레이션 (원본 텍스트 반환)"""
-        
+
         # 콘텐츠 정보 준비
         contents_info, content_ids = self._prepare_content_info(recommended_contents)
-        
+
         # 프롬프트 생성
         user_prompt = self._build_user_prompt(persona, contents_info, content_ids)
-        
+
         # 디버깅 출력
         if self.debug:
             print("📝 LLM에게 보내는 프롬프트:")
@@ -156,31 +153,33 @@ class LLMUserSimulator:
             print(user_prompt)
             print("-" * 40)
             print()
-        
+
         # API 호출
         response = self._call_ollama_api(user_prompt)
-        
+
         # 원본 응답 텍스트 반환
         llm_output = response.get("response", "")
-        
+
         if self.debug:
             print("🤖 LLM 원본 응답:")
             print("-" * 40)
             print(llm_output)
             print("-" * 40)
             print()
-        
+
         return llm_output
-    
-    def _prepare_content_info(self, recommended_contents: List[Dict]) -> tuple[List[ContentInfo], List[str]]:
+
+    def _prepare_content_info(
+        self, recommended_contents: List[Dict]
+    ) -> tuple[List[ContentInfo], List[str]]:
         """콘텐츠 정보를 효율적으로 준비"""
         contents_info = []
         content_ids = []
-        
+
         for i, content in enumerate(recommended_contents):
             content_id = content.get("id", f"content_{i}")
             content_ids.append(content_id)
-            
+
             # ContentInfo 객체 생성 (메모리 효율적)
             info = ContentInfo(
                 index=i,
@@ -188,17 +187,17 @@ class LLMUserSimulator:
                 type=content.get("type", "unknown"),
                 title=content.get("title", "제목 없음"),
                 url=content.get("url", ""),
-                description=content.get("description", "설명 없음")[:200]
+                description=content.get("description", "설명 없음")[:200],
             )
             contents_info.append(info)
-        
+
         return contents_info, content_ids
-    
+
     ## 프롬포트엔지니어링 하는 부분
     def _build_user_prompt(
-        self, 
-        persona: PersonaConfig, 
-        contents_info: List[ContentInfo], 
+        self,
+        persona: PersonaConfig,
+        contents_info: List[ContentInfo],
         content_ids: List[str],
     ) -> str:
         """
@@ -206,16 +205,16 @@ class LLMUserSimulator:
         - 외부 키: responses·timestamp·persona_id·simulation_method
         - 내부 배열 요소 수 == len(content_ids)
         """
-        
+
         # 1) 콘텐츠 설명 줄
         content_info_text = "\n".join(
-            f"{info.content_id}: {info.type} - {info.title}\n   설명: {info.description}" 
+            f"{info.content_id}: {info.type} - {info.title}\n   설명: {info.description}"
             for info in contents_info
         )
-        
+
         # 2) 공통 메타값
         persona_id = f"{persona.mbti}_{persona.investment_level}_{persona.user_id}"
-        
+
         # 3) 프롬프트 본문
         prompt = f"""
 너는 주식 콘텐츠 클릭 시뮬레이터다. 입력 정보에 따른 페르소나를 기반으로 행동해라.
@@ -261,29 +260,31 @@ class LLMUserSimulator:
 4. JSON 배열 이외 텍스트·마크다운 블록·주석 **절대 출력 금지**.
 """
         return prompt.strip()
-    
+
     def _call_ollama_api(self, prompt: str) -> Dict:
         """Ollama API 호출 (최적화됨)"""
         payload = {
             "model": self.model,
             "prompt": prompt,
             "stream": False,
-            "options": self._api_config["options"]
+            "options": self._api_config["options"],
         }
-        
+
         response = requests.post(
             f"{self.ollama_url}/api/generate",
             json=payload,
-            timeout=self._api_config["timeout"]
+            timeout=self._api_config["timeout"],
         )
-        
+
         if response.status_code != 200:
-            raise Exception(f"Ollama API 오류: {response.status_code} - {response.text}")
-        
+            raise Exception(
+                f"Ollama API 오류: {response.status_code} - {response.text}"
+            )
+
         return response.json()
-    
+
     def reset_connection_cache(self) -> None:
         """연결 캐시 리셋 (테스트 또는 재연결 시 사용)"""
         self._connection_checked = False
         self._is_available = False
-        self._test_ollama_connection.cache_clear() 
+        self._test_ollama_connection.cache_clear()

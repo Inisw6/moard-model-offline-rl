@@ -1,8 +1,10 @@
+from typing import Any, Dict, List
+
 import numpy as np
-from typing import Dict, List, Any
+
 from components.base import BaseCandidateGenerator
 from components.registry import register
-from .db_utils import get_contents
+from components.db_utils import get_contents
 
 
 @register("query")

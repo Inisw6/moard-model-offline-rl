@@ -1,17 +1,18 @@
+import logging
+import random
+from datetime import datetime, timezone
+from typing import Any, Dict, List
+
 import gymnasium as gym
 from gymnasium import spaces
 import numpy as np
 import pandas as pd
-import random
-import logging
-from typing import Any, List, Dict
 
 from components.base import BaseEnv
 from components.registry import register
-from .db_utils import get_users, get_user_logs, get_contents
-from .llm_simu import LLMUserSimulator
-from .llm_response_handler import LLMResponseHandler
-from datetime import datetime, timezone
+from components.db_utils import get_contents, get_user_logs, get_users
+from components.llm_response_handler import LLMResponseHandler
+from components.llm_simu import LLMUserSimulator
 
 
 @register("rec_env")
@@ -60,32 +61,37 @@ class RecEnv(gym.Env, BaseEnv):
         self.embedder = embedder
         self.candidate_generator = candidate_generator
         self.reward_fn = reward_fn
-        
+
         # LLM 시뮬레이터는 필수로 제공되어야 함
         if llm_simulator is None:
             raise ValueError("LLM simulator must be provided")
-        
+
         self.llm_simulator = llm_simulator
         self.response_handler = LLMResponseHandler(debug=debug)
         self.current_query = None
-        
+
         # 페르소나 정보 설정
         from .persona_db import get_persona_db
+
         persona_db = get_persona_db()
-        
+
         if persona_id is None:
             # 랜덤 페르소나 선택
             persona = persona_db.get_random_persona()
             if debug:
-                print(f"🎲 랜덤 페르소나 선택: ID{persona.persona_id} ({persona.mbti}, 레벨{persona.investment_level})")
+                print(
+                    f"🎲 랜덤 페르소나 선택: ID{persona.persona_id} ({persona.mbti}, 레벨{persona.investment_level})"
+                )
         else:
             # 지정된 페르소나 사용
             persona = persona_db.get_persona_by_id(persona_id)
             if not persona:
                 raise ValueError(f"Persona {persona_id} not found in database")
             if debug:
-                print(f"🎭 지정 페르소나: ID{persona.persona_id} ({persona.mbti}, 레벨{persona.investment_level})")
-        
+                print(
+                    f"🎭 지정 페르소나: ID{persona.persona_id} ({persona.mbti}, 레벨{persona.investment_level})"
+                )
+
         # 페르소나 속성 저장
         self.persona_id = persona.persona_id
         self.persona_mbti = persona.mbti
@@ -136,16 +142,21 @@ class RecEnv(gym.Env, BaseEnv):
         self._observation_space = spaces.Box(
             low=-np.inf, high=np.inf, shape=(state_dim,), dtype=np.float32
         )
-        
+
         # action_space를 top-k 전체 선택으로 변경
         # action = [(content_type, index), (content_type, index), ...]
-        self._action_space = spaces.Tuple([
-            spaces.Tuple((
-                spaces.Discrete(len(self.embedder.content_types)),
-                spaces.Discrete(100)  # 충분히 큰 후보 인덱스 범위
-            )) for _ in range(top_k)
-        ])
-        
+        self._action_space = spaces.Tuple(
+            [
+                spaces.Tuple(
+                    (
+                        spaces.Discrete(len(self.embedder.content_types)),
+                        spaces.Discrete(100),  # 충분히 큰 후보 인덱스 범위
+                    )
+                )
+                for _ in range(top_k)
+            ]
+        )
+
         self.step_count = 0
 
     @property
@@ -247,7 +258,9 @@ class RecEnv(gym.Env, BaseEnv):
             "current_time": datetime.now(timezone.utc),
         }
 
-    def _select_contents_from_action(self, cand_dict: dict, action_list: List[tuple]) -> List[dict]:
+    def _select_contents_from_action(
+        self, cand_dict: dict, action_list: List[tuple]
+    ) -> List[dict]:
         """
         액션 리스트에서 실제 추천할 콘텐츠들을 추출합니다.
 
@@ -263,13 +276,15 @@ class RecEnv(gym.Env, BaseEnv):
             if ctype in cand_dict and len(cand_dict[ctype]) > cand_idx:
                 selected_contents.append(cand_dict[ctype][cand_idx])
             else:
-                logging.warning(f"Invalid action ({ctype}, {cand_idx}). Candidate not found.")
+                logging.warning(
+                    f"Invalid action ({ctype}, {cand_idx}). Candidate not found."
+                )
         return selected_contents
 
     def _simulate_user_response(self, all_candidates: dict) -> List[Dict]:
         """
         LLM 기반으로 사용자 반응을 시뮬레이션합니다.
-        
+
         Args:
             all_candidates (dict): 전체 후보군 {타입: [콘텐츠, ...]}.
 
@@ -279,22 +294,24 @@ class RecEnv(gym.Env, BaseEnv):
         """
         if self.llm_simulator is None:
             # LLM 시뮬레이터가 없으면 기본 확률 기반으로 폴백
-            logging.warning("LLM simulator not available. Falling back to random simulation.")
+            logging.warning(
+                "LLM simulator not available. Falling back to random simulation."
+            )
             return self._create_fallback_responses(all_candidates)
-        
+
         try:
             # 전체 후보군을 flat list로 변환
             all_contents = []
             for content_type, contents in all_candidates.items():
                 all_contents.extend(contents)
-            
+
             logging.debug(f"Sending {len(all_contents)} contents to LLM simulator")
-            
+
             # 페르소나 정보 사용
             persona_id = self.persona_id
             mbti = self.persona_mbti
             investment_level = self.persona_investment_level
-            
+
             # LLM 시뮬레이터 호출 - 원본 텍스트 반환
             raw_response = self.llm_simulator.simulate_user_response(
                 persona_id=persona_id,
@@ -304,20 +321,21 @@ class RecEnv(gym.Env, BaseEnv):
                 current_context={
                     "step_count": self.step_count,
                     "session_logs": self.current_session_simulated_logs,
-                    "all_candidate_types": list(all_candidates.keys())
-                }
+                    "all_candidate_types": list(all_candidates.keys()),
+                },
             )
-            
+
             # LLMResponseHandler를 사용하여 응답 처리 - 모든 후보에 대한 반응 추출
             return self.response_handler.extract_all_responses(
-                llm_raw_text=raw_response,
-                all_contents=all_contents
+                llm_raw_text=raw_response, all_contents=all_contents
             )
-                
+
         except Exception as e:
-            logging.error(f"LLM simulation error: {e}. Falling back to random simulation.")
+            logging.error(
+                f"LLM simulation error: {e}. Falling back to random simulation."
+            )
             return self._create_fallback_responses(all_candidates)
-    
+
     def _create_fallback_responses(self, all_candidates: dict) -> List[Dict]:
         """
         LLM 시뮬레이터가 실패했을 때 사용할 폴백 응답 생성
@@ -325,22 +343,26 @@ class RecEnv(gym.Env, BaseEnv):
         all_contents = []
         for content_type, contents in all_candidates.items():
             all_contents.extend(contents)
-        
+
         responses = []
         for content in all_contents:
             # 랜덤하게 일부만 클릭
             clicked = random.random() < 0.3  # 30% 확률로 클릭
             dwell_time = random.randint(60, 300) if clicked else 0
-            
-            responses.append({
-                "content_id": content.get("id"),
-                "clicked": clicked,
-                "dwell_time": dwell_time
-            })
-        
+
+            responses.append(
+                {
+                    "content_id": content.get("id"),
+                    "clicked": clicked,
+                    "dwell_time": dwell_time,
+                }
+            )
+
         return responses
 
-    def _create_simulated_log_entry(self, content: dict, event_type: str, dwell_time: int = None) -> dict:
+    def _create_simulated_log_entry(
+        self, content: dict, event_type: str, dwell_time: int = None
+    ) -> dict:
         """
         시뮬레이션용 로그 엔트리를 생성합니다.
 
@@ -357,7 +379,9 @@ class RecEnv(gym.Env, BaseEnv):
             if event_type == "VIEW":
                 time_seconds = 0  # VIEW면 체류시간 0
             else:  # CLICK
-                time_seconds = random.randint(60, 600)  # CLICK인데 체류시간 없으면 기본값
+                time_seconds = random.randint(
+                    60, 600
+                )  # CLICK인데 체류시간 없으면 기본값
         else:
             time_seconds = dwell_time
 
@@ -435,8 +459,7 @@ class RecEnv(gym.Env, BaseEnv):
 
         # 5) 보상 계산: 모든 응답을 사용하여 보상 계산
         total_reward = self.reward_fn.calculate_from_topk_responses(
-            all_responses=all_responses,
-            selected_contents=selected_contents
+            all_responses=all_responses, selected_contents=selected_contents
         )
 
         # 6) 시뮬레이션 로그 생성 및 추가 (클릭한 콘텐츠들만)
@@ -448,11 +471,11 @@ class RecEnv(gym.Env, BaseEnv):
                     if content.get("id") == int(response["content_id"]):
                         clicked_content = content
                         break
-                
+
                 if clicked_content:
                     event_type = "CLICK"
                     new_log_entry = self._create_simulated_log_entry(
-                                    clicked_content, event_type, response["dwell_time"]
+                        clicked_content, event_type, response["dwell_time"]
                     )
                     self.current_session_simulated_logs.append(new_log_entry)
 
@@ -473,27 +496,33 @@ class RecEnv(gym.Env, BaseEnv):
         info = {
             "all_responses": all_responses,
             "selected_contents": selected_contents,
-            "total_clicks": sum(1 for r in all_responses if r["clicked"])
+            "total_clicks": sum(1 for r in all_responses if r["clicked"]),
         }
         return next_state, total_reward, done, False, info
 
-    def _simulate_user_response_for_topk(self, selected_contents: List[dict]) -> List[Dict]:
+    def _simulate_user_response_for_topk(
+        self, selected_contents: List[dict]
+    ) -> List[Dict]:
         """
         선택된 top-k 콘텐츠에 대해 LLM 기반 사용자 반응 시뮬레이션
-        
+
         Args:
             selected_contents (List[dict]): 선택된 top-k 콘텐츠 리스트
-        
+
         Returns:
             List[Dict]: 각 콘텐츠별 반응 정보 리스트
         """
         if self.llm_simulator is None:
-            logging.warning("LLM simulator not available. Falling back to random simulation.")
+            logging.warning(
+                "LLM simulator not available. Falling back to random simulation."
+            )
             return self._create_fallback_responses_for_list(selected_contents)
-        
+
         try:
-            logging.debug(f"Sending {len(selected_contents)} selected contents to LLM simulator")
-            
+            logging.debug(
+                f"Sending {len(selected_contents)} selected contents to LLM simulator"
+            )
+
             # 페르소나 정보 사용
             raw_response = self.llm_simulator.simulate_user_response(
                 persona_id=self.persona_id,
@@ -502,18 +531,19 @@ class RecEnv(gym.Env, BaseEnv):
                 recommended_contents=selected_contents,
                 current_context={
                     "step_count": self.step_count,
-                    "session_logs": self.current_session_simulated_logs
-                }
+                    "session_logs": self.current_session_simulated_logs,
+                },
             )
-            
+
             # LLMResponseHandler를 사용하여 응답 처리
             return self.response_handler.extract_all_responses(
-                llm_raw_text=raw_response,
-                all_contents=selected_contents
+                llm_raw_text=raw_response, all_contents=selected_contents
             )
-                
+
         except Exception as e:
-            logging.error(f"LLM simulation error: {e}. Falling back to random simulation.")
+            logging.error(
+                f"LLM simulation error: {e}. Falling back to random simulation."
+            )
             return self._create_fallback_responses_for_list(selected_contents)
 
     def _create_fallback_responses_for_list(self, contents: List[dict]) -> List[Dict]:
@@ -524,13 +554,15 @@ class RecEnv(gym.Env, BaseEnv):
         for content in contents:
             clicked = random.random() < 0.3  # 30% 확률로 클릭
             dwell_time = random.randint(60, 300) if clicked else 0
-            
-            responses.append({
-                "content_id": content.get("id"),
-                "clicked": clicked,
-                "dwell_time": dwell_time
-            })
-        
+
+            responses.append(
+                {
+                    "content_id": content.get("id"),
+                    "clicked": clicked,
+                    "dwell_time": dwell_time,
+                }
+            )
+
         return responses
 
     def get_candidates(self) -> dict[str, list[Any]]:

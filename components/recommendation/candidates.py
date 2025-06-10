@@ -2,9 +2,9 @@ from typing import Any, Dict, List
 
 import numpy as np
 
-from components.base import BaseCandidateGenerator
+from components.core.base import BaseCandidateGenerator
 from components.registry import register
-from components.db_utils import get_contents
+from components.database.db_utils import get_contents
 
 
 @register("query")

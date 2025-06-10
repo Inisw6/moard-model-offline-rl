@@ -4,12 +4,24 @@ import numpy as np
 import torch
 import logging
 import os
+import csv
 from typing import List, Dict, Any, Tuple
 from datetime import datetime
 
 from components.registry import make
-from components.rec_context import RecContextManager, get_recommendation_quota
-from components.rec_utils import enforce_type_constraint, compute_all_q_values
+from components.recommendation.rec_context import (
+    RecContextManager,
+    get_recommendation_quota,
+)
+from components.recommendation.rec_utils import (
+    enforce_type_constraint,
+    compute_all_q_values,
+)
+from components.simulation.simulators import (
+    RandomResponseSimulator,
+    LLMResponseSimulator,
+)
+from components.simulation.llm_simu import LLMUserSimulator
 
 
 class ExperimentRunner:
@@ -63,6 +75,16 @@ class ExperimentRunner:
         logging.info(f"Random seed set: {seed}")
 
     def run_single(self, seed: int) -> None:
+        """
+        실험 루프를 실행하여 구성된 모든 에피소드를 처리합니다.
+
+        Args:
+            seed (int): The random seed used to initialize all RNGs for reproducibility.
+
+        Raises:
+            ValueError: If an unsupported simulator type is specified or if env.step() returns
+                        an invalid result format.
+        """
         self.set_seed(seed)
         cfg: Dict[str, Any] = self.cfg
 
@@ -74,11 +96,27 @@ class ExperimentRunner:
         reward_fn = make(cfg["reward_fn"]["type"], **cfg["reward_fn"]["params"])
         context = RecContextManager(cfg["env"]["params"]["cold_start"])
 
-        # LLM 시뮬레이터 생성
-        from components.llm_simu import LLMUserSimulator
-        llm_simulator = LLMUserSimulator(**cfg["llm_simulator"]["params"])
-        
-        # 환경 생성 (LLM 시뮬레이터 포함)
+        # 사용자 반응 시뮬레이터 생성
+
+        sim_cfg = cfg["response_simulator"]
+        sim_type = sim_cfg["type"]
+        sim_params = sim_cfg.get("params", {}).copy()
+
+        if sim_type == "random":
+            response_simulator = RandomResponseSimulator(**sim_params)
+        elif sim_type == "llm":
+            # 1. LLM 클라이언트(LLMUserSimulator) 생성
+            llm_client_cfg = sim_params.pop("llm_simulator")
+            llm_client = LLMUserSimulator(**llm_client_cfg.get("params", {}))
+
+            # 2. LLMResponseSimulator 생성
+            response_simulator = LLMResponseSimulator(
+                llm_simulator=llm_client, **sim_params
+            )
+        else:
+            raise ValueError(f"Unsupported simulator type: {sim_type}")
+
+        # 환경 생성
         env = make(
             cfg["env"]["type"],
             **cfg["env"]["params"],
@@ -86,9 +124,9 @@ class ExperimentRunner:
             candidate_generator=candgen,
             reward_fn=reward_fn,
             context=context,
-            llm_simulator=llm_simulator,  # LLM 시뮬레이터 전달
+            response_simulator=response_simulator,
         )
-        
+
         # 에이전트 생성
         agent = make(
             cfg["agent"]["type"],
@@ -100,7 +138,7 @@ class ExperimentRunner:
 
         total_eps: int = cfg["experiment"]["total_episodes"]
         max_recs: int = cfg["experiment"]["max_recommendations"]
-        
+
         episode_metrics = []
 
         for ep in range(total_eps):
@@ -148,7 +186,9 @@ class ExperimentRunner:
                     logging.info(
                         f"    Recommended {len(enforce_list)} contents → total_reward={total_reward}, done={done}"
                     )
-                    logging.info(f"    Clicks: {info.get('total_clicks', 0)}/{len(enforce_list)}")
+                    logging.info(
+                        f"    Clicks: {info.get('total_clicks', 0)}/{len(enforce_list)}"
+                    )
 
                     # RL 학습을 위한 데이터 저장 (각 선택된 콘텐츠별로)
                     for ctype, idx in enforce_list:
@@ -170,12 +210,17 @@ class ExperimentRunner:
                             ]
                             for t, cs in next_cand_dict.items()
                         }
-                        
+
                         # 개별 콘텐츠별 보상을 전체 보상에서 분할 (단순화)
                         individual_reward = total_reward / len(enforce_list)
-                        
+
                         agent.store(
-                            state, selected_emb, individual_reward, next_state, next_cembs, done
+                            state,
+                            selected_emb,
+                            individual_reward,
+                            next_state,
+                            next_cembs,
+                            done,
                         )
 
                         agent.learn()
@@ -192,8 +237,10 @@ class ExperimentRunner:
                         "total_reward": total_reward,
                         "recommendations": rec_count,
                         "clicks": info.get("total_clicks", 0),
-                        "click_ratio": info.get("total_clicks", 0) / rec_count if rec_count else 0,
-                        "epsilon": getattr(agent, "epsilon", float('nan')),
+                        "click_ratio": (
+                            info.get("total_clicks", 0) / rec_count if rec_count else 0
+                        ),
+                        "epsilon": getattr(agent, "epsilon", float("nan")),
                         "datetime": datetime.now().isoformat(),
                     }
                 )
@@ -204,9 +251,22 @@ class ExperimentRunner:
 
         self.save_results(episode_metrics)
 
-    def save_results(self, metrics: List[Dict[str, Any]]):
-        import csv
+    def save_results(self, metrics: List[Dict[str, Any]]) -> None:
+        """
+        실험 결과(metrics)를 CSV 파일로 저장합니다.
 
+        Args:
+            metrics (List[Dict[str, Any]]): 저장할 메트릭 리스트.
+                각 딕셔너리의 키가 CSV의 컬럼명(fieldnames)이 됩니다.
+
+        Returns:
+            None
+
+        Notes:
+            - 로그 파일 경로(self.result_log_path)의 확장자를 .csv로 변경하여 저장합니다.
+            - 파일이 존재하지 않으면 헤더를 작성(writeheader)하고, 이후에는 이어쓰기 모드("a")로 기록합니다.
+            - metrics가 비어 있으면 아무 작업도 수행하지 않습니다.
+        """
         csv_path = self.result_log_path.replace(".log", ".csv")
         fieldnames = metrics[0].keys() if metrics else []
         if not fieldnames:

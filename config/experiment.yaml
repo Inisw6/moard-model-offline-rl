@@ -1,22 +1,25 @@
 env:
-  type: llm_rec_env
+  type: rec_env
   params:
     cold_start: 10
-    max_steps: 500
+    max_steps: 30
     top_k: 6
-    # 시뮬레이션 페르소나 설정 (1-100중 선택, null이면 랜덤)
-    persona_id: 5 
-    # 페르소나 정보 출력 여부
-    debug: true   
 
-# LLM 시뮬레이터 설정
-llm_simulator:
-  type: ollama
-  params:
-    ollama_url: "http://localhost:11434"  # Ollama 서버 주소
-    model: "gemma3:4b-it-q4_K_M"
-    # 로그 출력
-    debug: true 
+response_simulator:
+  # type: random # 또는 llm
+  # params: {}
+  type: random
+  # params:
+  #   # 시뮬레이션 페르소나 설정 (1-100중 선택, null이면 랜덤)
+  #   persona_id: 5
+  #   # 페르소나 및 LLM 응답 정보 출력 여부
+  #   debug: true
+  #   # LLM 클라이언트 설정 (LLMResponseSimulator 사용 시에만 필요)
+  #   llm_simulator:
+  #     params:
+  #       ollama_url: "http://localhost:11434"
+  #       model: "llama3.2:3b-instruct-q4_K_M"
+  #       debug: true
 
 agent:
   type: dqn
@@ -51,7 +54,7 @@ reward_fn:
   params: {}
 
 experiment:
-  total_episodes: 1
+  total_episodes: 20
   max_recommendations: 6
   seeds: [0]
   result_log_path: "./data/experiment_results.log"

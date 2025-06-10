@@ -5,7 +5,7 @@ from typing import Dict, List, Optional, Tuple, Any
 
 import requests
 
-from components.personas import PersonaConfig, create_persona_from_user_data
+from components.simulation.personas import PersonaConfig, create_persona_from_user_data
 
 
 @dataclass

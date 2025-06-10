@@ -10,7 +10,7 @@ from datetime import datetime
 from components.registry import make
 from components.rec_context import RecContextManager, get_recommendation_quota
 from components.rec_utils import enforce_type_constraint, compute_all_q_values
-
+from components.db_utils import get_contents
 
 class ExperimentRunner:
     """
@@ -25,12 +25,30 @@ class ExperimentRunner:
         Args:
             config_path (str): 실험 설정 파일 경로 (YAML)
         """
+        
         self.cfg: Dict[str, Any] = yaml.safe_load(open(config_path))
         # self.cfg = self._load_config(config_path)
         self.result_log_path = self.cfg.get("experiment", {}).get(
             "result_log_path", "experiment_results.log"
         )
-        logging.info("ExperimentRunner initialized.")
+
+        # df 로드
+        self.contents_df = get_contents()
+        if self.contents_df.empty:
+            raise ValueError("No contents found in the database. Please check your setup.")
+        
+        embedder = make(self.cfg["embedder"]["type"], **self.cfg["embedder"]["params"])
+
+        for idx, row in self.contents_df.iterrows():
+            content = row.to_dict()
+            embedding = embedder.embed_content(content)
+            self.contents_df.at[idx, "embedding"] = embedding
+
+            
+            # 누락됐는지 확인하는 부분
+            if len(self.contents_df.at[0, 'embedding']) != len(embedding):
+                logging.warning(f"{idx}: {len(self.contents_df.at[0, 'embedding'])} , {len(embedding)} 길이 비교")
+
 
     # 추후 추가 예정
     # def _load_config(self, config_path: str) -> Dict[str, Any]:
@@ -120,8 +138,11 @@ class ExperimentRunner:
                     for ctype, cands in cand_dict.items():
                         for cand in cands:
                             cid = getattr(cand, "id", id(cand))
-                            if cid not in emb_cache:
+                            if cid not in emb_cache:                                
                                 emb_cache[cid] = embedder.embed_content(cand)
+                                # ** 만약 contents_df에 이미 임베딩이 있다면, 해당 임베딩을 사용 **
+                                # emb_cache[cid] = self.contents_df[self.contents_df['id'] == cid]['embedding'].values[0]
+                                
 
                     q_values: Dict[str, List[float]] = compute_all_q_values(
                         state, cand_dict, embedder, agent, emb_cache=emb_cache
@@ -165,6 +186,8 @@ class ExperimentRunner:
                             t: [
                                 emb_cache.get(
                                     getattr(c, "id", id(c)), embedder.embed_content(c)
+                                    # ** 만약 contents_df에 이미 임베딩이 있다면, 해당 임베딩을 사용 **
+                                    # getatter(c, "id", id(c)), self.contents_df[self.contents_df['id'] == getattr(c, "id", id(c))]['embedding'].values[0]
                                 )
                                 for c in cs
                             ]

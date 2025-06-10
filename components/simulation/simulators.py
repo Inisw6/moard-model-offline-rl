@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional
 from components.core.base import BaseResponseSimulator
 from components.simulation.llm_response_handler import LLMResponseHandler
 from components.simulation.llm_simu import LLMUserSimulator
-from components.simulation.persona_db import get_persona_db
+from components.database.persona_db import get_persona_db
 
 
 class RandomResponseSimulator(BaseResponseSimulator):
@@ -126,4 +126,4 @@ class LLMResponseSimulator(BaseResponseSimulator):
             logging.error(
                 "LLM simulation error: %s. Falling back to random simulation.", e
             )
-            return self.fallback_simulator.simulate_responses(selected_contents, {}) 
+            return self.fallback_simulator.simulate_responses(selected_contents, {})

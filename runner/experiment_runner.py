@@ -250,7 +250,9 @@ class ExperimentRunner:
                 if (ep + 1) % 5 == 0:  # 5 에피소드마다 저장
                     save_dir = "saved_models"
                     os.makedirs(save_dir, exist_ok=True)
-                    model_path = os.path.join(save_dir, f"dqn_model_seed{seed}_ep{ep+1}.pth")
+                    model_path = os.path.join(
+                        save_dir, f"dqn_model_seed{seed}_ep{ep+1}.pth"
+                    )
                     agent.save(model_path)
                     logging.info(f"Model saved to {model_path}")
 

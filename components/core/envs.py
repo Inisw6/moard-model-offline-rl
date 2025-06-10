@@ -399,8 +399,8 @@ class RecEnv(gym.Env, BaseEnv):
         )
 
         # 5) 보상 계산: 모든 응답을 사용하여 보상 계산
-        total_reward = self.reward_fn.calculate_from_topk_responses(
-            all_responses=all_responses, selected_contents=selected_contents
+        total_reward, individual_reward_dic = (
+            self.reward_fn.calculate_from_topk_responses(all_responses=all_responses)
         )
 
         # 6) 시뮬레이션 로그 생성 및 추가 (클릭한 콘텐츠들만)
@@ -438,6 +438,7 @@ class RecEnv(gym.Env, BaseEnv):
             "all_responses": all_responses,
             "selected_contents": selected_contents,
             "total_clicks": sum(1 for r in all_responses if r["clicked"]),
+            "individual_rewards": individual_reward_dic,
         }
         return next_state, total_reward, done, False, info
 

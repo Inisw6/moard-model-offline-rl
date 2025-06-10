@@ -212,7 +212,9 @@ class ExperimentRunner:
                         }
 
                         # 개별 콘텐츠별 보상을 전체 보상에서 분할 (단순화)
-                        individual_reward = total_reward / len(enforce_list)
+                        individual_reward = info.get("individual_rewards", {}).get(
+                            int(selected["id"]), 0.0
+                        )
 
                         agent.store(
                             state,

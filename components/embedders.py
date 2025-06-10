@@ -197,7 +197,7 @@ class SbertContentEmbedder(BaseContentEmbedder):
         """
         return self.content_dim
 
-    def embed_content(self, content: dict) -> np.ndarray:
+    def embed_content(self, raw_text: str) -> np.ndarray:
         """
         SBERT를 이용해 콘텐츠를 임베딩
 
@@ -211,9 +211,6 @@ class SbertContentEmbedder(BaseContentEmbedder):
                 [0:pretrained_dim] = SBERT 임베딩(float32),
                 필요한 경우 0으로 패딩하거나 잘라냄.
         """
-        # 제목과 설명을 합쳐서 HTML 태그 제거
-        raw_text = content.get("title", "") + content.get("description", "")
-        raw_text = re.sub(r"<.*?>", "", raw_text)
 
         if raw_text == "":
             # 빈 문자열일 경우 전부 0 벡터 반환
@@ -291,7 +288,7 @@ class Doc2VecContentEmbedder(BaseContentEmbedder):
         """
         return self.content_dim
 
-    def embed_content(self, content: dict) -> np.ndarray:
+    def embed_content(self, raw_text: str) -> np.ndarray:
         """
         Doc2Vec를 이용해 콘텐츠를 임베딩
 
@@ -305,9 +302,6 @@ class Doc2VecContentEmbedder(BaseContentEmbedder):
                 [0:pretrained_dim] = Doc2Vec 임베딩(float32),
                 필요한 경우 0으로 패딩하거나 잘라냄.
         """
-        # 제목과 설명을 합쳐서 HTML 태그 제거 후 토큰화
-        raw_text = content.get("title", "") + " " + content.get("description", "")
-        raw_text = re.sub(r"<.*?>", "", raw_text).strip()
 
         if raw_text == "":
             tokens = []
@@ -326,134 +320,134 @@ class Doc2VecContentEmbedder(BaseContentEmbedder):
         return doc2vec_emb
 
 
-@register("simple_content")
-class SimpleContentEmbedder(BaseContentEmbedder):
-    """
-    SimpleContentEmbedder:
-    - 사전 저장된 임베딩(JSON 문자열)과 콘텐츠 타입을 결합하여 벡터 생성
-    - 벡터 구성: [사전학습 임베딩, 타입 원핫 인코딩, 남은 부분 0 패딩]
-    """
+# @register("simple_content")
+# class SimpleContentEmbedder(BaseContentEmbedder):
+#     """
+#     SimpleContentEmbedder:
+#     - 사전 저장된 임베딩(JSON 문자열)과 콘텐츠 타입을 결합하여 벡터 생성
+#     - 벡터 구성: [사전학습 임베딩, 타입 원핫 인코딩, 남은 부분 0 패딩]
+#     """
 
-    def __init__(
-        self,
-        content_dim: int = 5,
-        all_contents_df: Optional[object] = None,  # 의존성 주입 가능
-    ):
-        """
-        Args:
-            content_dim (int): 출력할 콘텐츠 임베딩 벡터의 차원.
-                              콘텐츠 타입 개수 이상이어야 함.
-            all_contents_df (Optional[pandas.DataFrame]): 테스트용으로 외부에서 전달할 콘텐츠 DataFrame.
-                                                         None일 경우 get_contents() 호출.
-        """
-        # 의존성 주입된 DataFrame이 없다면 실제 DB에서 가져옴
-        self.all_contents_df = (
-            all_contents_df if all_contents_df is not None else get_contents()
-        )
-        if not self.all_contents_df.empty:
-            self.content_types = self.all_contents_df["type"].unique().tolist()
-        else:
-            self.content_types = ["youtube", "blog", "news"]
+#     def __init__(
+#         self,
+#         content_dim: int = 5,
+#         all_contents_df: Optional[object] = None,  # 의존성 주입 가능
+#     ):
+#         """
+#         Args:
+#             content_dim (int): 출력할 콘텐츠 임베딩 벡터의 차원.
+#                               콘텐츠 타입 개수 이상이어야 함.
+#             all_contents_df (Optional[pandas.DataFrame]): 테스트용으로 외부에서 전달할 콘텐츠 DataFrame.
+#                                                          None일 경우 get_contents() 호출.
+#         """
+#         # 의존성 주입된 DataFrame이 없다면 실제 DB에서 가져옴
+#         self.all_contents_df = (
+#             all_contents_df if all_contents_df is not None else get_contents()
+#         )
+#         if not self.all_contents_df.empty:
+#             self.content_types = self.all_contents_df["type"].unique().tolist()
+#         else:
+#             self.content_types = ["youtube", "blog", "news"]
 
-        self.num_content_types = len(self.content_types)
-        self.type_to_idx_map = {t: i for i, t in enumerate(self.content_types)}
+#         self.num_content_types = len(self.content_types)
+#         self.type_to_idx_map = {t: i for i, t in enumerate(self.content_types)}
 
-        # 사전학습 임베딩을 위한 차원 확보
-        self.pretrained_content_embedding_dim = content_dim - self.num_content_types
-        if self.pretrained_content_embedding_dim < 0:
-            logging.warning(
-                "content_dim (%d)이 콘텐츠 타입 수(%d)보다 작습니다. "
-                "사전학습 임베딩 차원을 0으로 설정하고 content_dim을 %d로 사용합니다.",
-                content_dim,
-                self.num_content_types,
-                self.num_content_types,
-            )
-            self.pretrained_content_embedding_dim = 0
-            self.content_dim = self.num_content_types
-        else:
-            self.content_dim = content_dim
+#         # 사전학습 임베딩을 위한 차원 확보
+#         self.pretrained_content_embedding_dim = content_dim - self.num_content_types
+#         if self.pretrained_content_embedding_dim < 0:
+#             logging.warning(
+#                 "content_dim (%d)이 콘텐츠 타입 수(%d)보다 작습니다. "
+#                 "사전학습 임베딩 차원을 0으로 설정하고 content_dim을 %d로 사용합니다.",
+#                 content_dim,
+#                 self.num_content_types,
+#                 self.num_content_types,
+#             )
+#             self.pretrained_content_embedding_dim = 0
+#             self.content_dim = self.num_content_types
+#         else:
+#             self.content_dim = content_dim
 
-    def output_dim(self) -> int:
-        """
-        Returns:
-            int: 콘텐츠 임베딩 벡터의 차원
-        """
-        return self.content_dim
+#     def output_dim(self) -> int:
+#         """
+#         Returns:
+#             int: 콘텐츠 임베딩 벡터의 차원
+#         """
+#         return self.content_dim
 
-    def embed_content(self, content: dict) -> np.ndarray:
-        """
-        콘텐츠 사전 학습 임베딩과 타입 정보를 결합하여 벡터 생성
+#     def embed_content(self, content: dict) -> np.ndarray:
+#         """
+#         콘텐츠 사전 학습 임베딩과 타입 정보를 결합하여 벡터 생성
 
-        Args:
-            content (dict):
-                - "embedding": str, JSON으로 인코딩된 숫자 리스트 (사전학습 임베딩)
-                - "type": str, 콘텐츠 타입 (예: "youtube", "blog", "news")
+#         Args:
+#             content (dict):
+#                 - "embedding": str, JSON으로 인코딩된 숫자 리스트 (사전학습 임베딩)
+#                 - "type": str, 콘텐츠 타입 (예: "youtube", "blog", "news")
 
-        Returns:
-            np.ndarray of shape (content_dim,):
-                [0:N]   = 사전학습 임베딩(float32) 또는 값이 없으면 0
-                [N:N+num_content_types] = 타입 원핫 인코딩
-                [나머지] = 0 패딩
-        """
-        # 사전학습 임베딩 문자열 파싱
-        if self.pretrained_content_embedding_dim > 0:
-            try:
-                embedding_str = content.get("embedding")
-                if embedding_str is None or embedding_str == "":
-                    # 임베딩이 없으면 0 벡터
-                    pretrained_emb = np.zeros(
-                        self.pretrained_content_embedding_dim, dtype=np.float32
-                    )
-                else:
-                    parsed_list = json.loads(embedding_str)
-                    # 리스트 형태 및 모든 요소가 숫자인지 확인
-                    if not isinstance(parsed_list, list) or not all(
-                        isinstance(x, (int, float)) for x in parsed_list
-                    ):
-                        pretrained_emb = np.zeros(
-                            self.pretrained_content_embedding_dim, dtype=np.float32
-                        )
-                    else:
-                        pretrained_emb_list = np.array(parsed_list, dtype=np.float32)
-                        if (
-                            len(pretrained_emb_list)
-                            != self.pretrained_content_embedding_dim
-                        ):
-                            # 차원 불일치 시 0 벡터
-                            pretrained_emb = np.zeros(
-                                self.pretrained_content_embedding_dim, dtype=np.float32
-                            )
-                        else:
-                            pretrained_emb = pretrained_emb_list
-            except (json.JSONDecodeError, ValueError):
-                # JSON 파싱 오류 시 0 벡터
-                pretrained_emb = np.zeros(
-                    self.pretrained_content_embedding_dim, dtype=np.float32
-                )
-        else:
-            # 사전학습 임베딩 영역이 없으면 빈 배열
-            pretrained_emb = np.array([], dtype=np.float32)
+#         Returns:
+#             np.ndarray of shape (content_dim,):
+#                 [0:N]   = 사전학습 임베딩(float32) 또는 값이 없으면 0
+#                 [N:N+num_content_types] = 타입 원핫 인코딩
+#                 [나머지] = 0 패딩
+#         """
+#         # 사전학습 임베딩 문자열 파싱
+#         if self.pretrained_content_embedding_dim > 0:
+#             try:
+#                 embedding_str = content.get("embedding")
+#                 if embedding_str is None or embedding_str == "":
+#                     # 임베딩이 없으면 0 벡터
+#                     pretrained_emb = np.zeros(
+#                         self.pretrained_content_embedding_dim, dtype=np.float32
+#                     )
+#                 else:
+#                     parsed_list = json.loads(embedding_str)
+#                     # 리스트 형태 및 모든 요소가 숫자인지 확인
+#                     if not isinstance(parsed_list, list) or not all(
+#                         isinstance(x, (int, float)) for x in parsed_list
+#                     ):
+#                         pretrained_emb = np.zeros(
+#                             self.pretrained_content_embedding_dim, dtype=np.float32
+#                         )
+#                     else:
+#                         pretrained_emb_list = np.array(parsed_list, dtype=np.float32)
+#                         if (
+#                             len(pretrained_emb_list)
+#                             != self.pretrained_content_embedding_dim
+#                         ):
+#                             # 차원 불일치 시 0 벡터
+#                             pretrained_emb = np.zeros(
+#                                 self.pretrained_content_embedding_dim, dtype=np.float32
+#                             )
+#                         else:
+#                             pretrained_emb = pretrained_emb_list
+#             except (json.JSONDecodeError, ValueError):
+#                 # JSON 파싱 오류 시 0 벡터
+#                 pretrained_emb = np.zeros(
+#                     self.pretrained_content_embedding_dim, dtype=np.float32
+#                 )
+#         else:
+#             # 사전학습 임베딩 영역이 없으면 빈 배열
+#             pretrained_emb = np.array([], dtype=np.float32)
 
-        # 콘텐츠 타입에 대한 원핫 인코딩 생성
-        content_type_str = content.get("type", "").lower()
-        type_idx = self.type_to_idx_map.get(content_type_str, -1)
-        type_onehot = np.zeros(self.num_content_types, dtype=np.float32)
-        if type_idx != -1:
-            type_onehot[type_idx] = 1.0
+#         # 콘텐츠 타입에 대한 원핫 인코딩 생성
+#         content_type_str = content.get("type", "").lower()
+#         type_idx = self.type_to_idx_map.get(content_type_str, -1)
+#         type_onehot = np.zeros(self.num_content_types, dtype=np.float32)
+#         if type_idx != -1:
+#             type_onehot[type_idx] = 1.0
 
-        # 사전학습 임베딩 + 원핫 인코딩 연결
-        final_vec = np.concatenate([pretrained_emb, type_onehot])
-        if len(final_vec) != self.content_dim:
-            if len(final_vec) < self.content_dim:
-                # 벡터가 작으면 0으로 패딩
-                final_vec = np.pad(
-                    final_vec, (0, self.content_dim - len(final_vec)), "constant"
-                )
-            else:
-                # 벡터가 크면 잘라냄
-                final_vec = final_vec[: self.content_dim]
+#         # 사전학습 임베딩 + 원핫 인코딩 연결
+#         final_vec = np.concatenate([pretrained_emb, type_onehot])
+#         if len(final_vec) != self.content_dim:
+#             if len(final_vec) < self.content_dim:
+#                 # 벡터가 작으면 0으로 패딩
+#                 final_vec = np.pad(
+#                     final_vec, (0, self.content_dim - len(final_vec)), "constant"
+#                 )
+#             else:
+#                 # 벡터가 크면 잘라냄
+#                 final_vec = final_vec[: self.content_dim]
 
-        return final_vec.astype(np.float32)
+#         return final_vec.astype(np.float32)
 
 
 @register("simple_concat")

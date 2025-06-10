@@ -4,6 +4,7 @@ import numpy as np
 import torch
 import logging
 import os
+import csv
 from typing import List, Dict, Any, Tuple
 from datetime import datetime
 
@@ -16,6 +17,11 @@ from components.recommendation.rec_utils import (
     enforce_type_constraint,
     compute_all_q_values,
 )
+from components.simulation.simulators import (
+    RandomResponseSimulator,
+    LLMResponseSimulator,
+)
+from components.simulation.llm_simu import LLMUserSimulator
 
 
 class ExperimentRunner:
@@ -69,6 +75,16 @@ class ExperimentRunner:
         logging.info(f"Random seed set: {seed}")
 
     def run_single(self, seed: int) -> None:
+        """
+        실험 루프를 실행하여 구성된 모든 에피소드를 처리합니다.
+
+        Args:
+            seed (int): The random seed used to initialize all RNGs for reproducibility.
+
+        Raises:
+            ValueError: If an unsupported simulator type is specified or if env.step() returns
+                        an invalid result format.
+        """
         self.set_seed(seed)
         cfg: Dict[str, Any] = self.cfg
 
@@ -80,15 +96,27 @@ class ExperimentRunner:
         reward_fn = make(cfg["reward_fn"]["type"], **cfg["reward_fn"]["params"])
         context = RecContextManager(cfg["env"]["params"]["cold_start"])
 
-        # LLM 시뮬레이터 생성
-        from components.simulation.llm_simu import LLMUserSimulator
+        # 사용자 반응 시뮬레이터 생성
 
-        if "llm_simulator" not in cfg or "params" not in cfg["llm_simulator"]:
-            llm_simulator = None
+        sim_cfg = cfg["response_simulator"]
+        sim_type = sim_cfg["type"]
+        sim_params = sim_cfg.get("params", {}).copy()
+
+        if sim_type == "random":
+            response_simulator = RandomResponseSimulator(**sim_params)
+        elif sim_type == "llm":
+            # 1. LLM 클라이언트(LLMUserSimulator) 생성
+            llm_client_cfg = sim_params.pop("llm_simulator")
+            llm_client = LLMUserSimulator(**llm_client_cfg.get("params", {}))
+
+            # 2. LLMResponseSimulator 생성
+            response_simulator = LLMResponseSimulator(
+                llm_simulator=llm_client, **sim_params
+            )
         else:
-            llm_simulator = LLMUserSimulator(**cfg["llm_simulator"]["params"])
+            raise ValueError(f"Unsupported simulator type: {sim_type}")
 
-        # 환경 생성 (LLM 시뮬레이터 포함)
+        # 환경 생성
         env = make(
             cfg["env"]["type"],
             **cfg["env"]["params"],
@@ -96,7 +124,7 @@ class ExperimentRunner:
             candidate_generator=candgen,
             reward_fn=reward_fn,
             context=context,
-            llm_simulator=llm_simulator,  # LLM 시뮬레이터 전달
+            response_simulator=response_simulator,
         )
 
         # 에이전트 생성
@@ -223,9 +251,22 @@ class ExperimentRunner:
 
         self.save_results(episode_metrics)
 
-    def save_results(self, metrics: List[Dict[str, Any]]):
-        import csv
+    def save_results(self, metrics: List[Dict[str, Any]]) -> None:
+        """
+        실험 결과(metrics)를 CSV 파일로 저장합니다.
 
+        Args:
+            metrics (List[Dict[str, Any]]): 저장할 메트릭 리스트.
+                각 딕셔너리의 키가 CSV의 컬럼명(fieldnames)이 됩니다.
+
+        Returns:
+            None
+
+        Notes:
+            - 로그 파일 경로(self.result_log_path)의 확장자를 .csv로 변경하여 저장합니다.
+            - 파일이 존재하지 않으면 헤더를 작성(writeheader)하고, 이후에는 이어쓰기 모드("a")로 기록합니다.
+            - metrics가 비어 있으면 아무 작업도 수행하지 않습니다.
+        """
         csv_path = self.result_log_path.replace(".log", ".csv")
         fieldnames = metrics[0].keys() if metrics else []
         if not fieldnames:

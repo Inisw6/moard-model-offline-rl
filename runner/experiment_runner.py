@@ -9,10 +9,8 @@ from typing import List, Dict, Any, Tuple
 from datetime import datetime
 
 from components.registry import make
-from components.recommendation.rec_context import (
-    RecContextManager,
-    get_recommendation_quota,
-)
+from components.database.db_utils import get_stock_names
+from components.recommendation.rec_context import RecContextManager
 from components.recommendation.rec_utils import (
     enforce_type_constraint,
     compute_all_q_values,
@@ -97,7 +95,6 @@ class ExperimentRunner:
         context = RecContextManager(cfg["env"]["params"]["cold_start"])
 
         # 사용자 반응 시뮬레이터 생성
-
         sim_cfg = cfg["response_simulator"]
         sim_type = sim_cfg["type"]
         sim_params = sim_cfg.get("params", {}).copy()
@@ -138,14 +135,35 @@ class ExperimentRunner:
 
         total_eps: int = cfg["experiment"]["total_episodes"]
         max_recs: int = cfg["experiment"]["max_recommendations"]
+        max_stocks: int = cfg["experiment"].get("max_stocks", 89)
+
+        # 주식 이름 리스트 가져오기
+        stock_names: List[str] = get_stock_names()
+        if not stock_names:
+            raise ValueError("No stock names available in the database")
+
+        # max_stocks만큼만 종목 선택
+        stock_names = stock_names[:max_stocks]
+        logging.info(
+            f"Selected {len(stock_names)} stocks for experiment: {stock_names}"
+        )
+
+        queries = []
+        cycles, rem = divmod(total_eps, len(stock_names))
+        for _ in range(cycles):
+            random.shuffle(stock_names)
+            queries.extend(stock_names)
+        random.shuffle(stock_names)
+        queries.extend(stock_names[:rem])
 
         episode_metrics = []
 
-        for ep in range(total_eps):
+        for ep, query in enumerate(queries, start=1):
             try:
-                logging.info(f"\n--- Episode {ep+1}/{total_eps} (seed={seed}) ---")
-                # 기존처럼 쿼리 하드코딩 (나중에 변경 가능)
-                query: str = "삼성전자"
+                # 각 에피소드 시작 시 로그 출력
+                logging.info(
+                    f"\n--- Episode {ep+1}/{total_eps} (seed={seed}, query={query}) ---"
+                )
 
                 state, _ = env.reset(options={"query": query})
                 done: bool = False
@@ -154,6 +172,7 @@ class ExperimentRunner:
                 emb_cache: Dict[Any, Any] = {}
 
                 while not done:
+                    # 후보 임베딩 캐시
                     cand_dict: Dict[str, List[Any]] = env.get_candidates()
                     for ctype, cands in cand_dict.items():
                         for cand in cands:
@@ -161,15 +180,25 @@ class ExperimentRunner:
                             if cid not in emb_cache:
                                 emb_cache[cid] = embedder.embed_content(cand)
 
-                    q_values: Dict[str, List[float]] = compute_all_q_values(
-                        state, cand_dict, embedder, agent, emb_cache=emb_cache
-                    )
+                    # ε–greedy 탐험/활용 분기
+                    if random.random() < agent.epsilon:
+                        # Exploration: 무작위 슬레이트 생성
+                        enforce_list: List[Tuple[str, int]] = []
+                        types = list(cand_dict.keys())
+                        for _ in range(max_recs):
+                            t = random.choice(types)
+                            idx = random.randrange(len(cand_dict[t]))
+                            enforce_list.append((t, idx))
+                    else:
+                        # Exploitation: Q값 기반 슬레이트 생성
+                        q_values: Dict[str, List[float]] = compute_all_q_values(
+                            state, cand_dict, embedder, agent, emb_cache=emb_cache
+                        )
+                        enforce_list: List[Tuple[str, int]] = enforce_type_constraint(
+                            q_values, top_k=max_recs
+                        )
 
-                    enforce_list: List[Tuple[str, int]] = enforce_type_constraint(
-                        q_values, top_k=max_recs
-                    )
-
-                    # 새로운 환경: action_list 전체를 한 번에 step으로 전달
+                    # 환경에 한 번에 step 실행
                     step_result = env.step(enforce_list)
                     if (
                         not isinstance(step_result, (tuple, list))
@@ -184,13 +213,14 @@ class ExperimentRunner:
                     rec_count += len(enforce_list)
 
                     logging.info(
-                        f"    Recommended {len(enforce_list)} contents → total_reward={total_reward}, done={done}"
+                        f"    Recommended {len(enforce_list)} contents → "
+                        f"total_reward={total_reward}, done={done}"
                     )
                     logging.info(
                         f"    Clicks: {info.get('total_clicks', 0)}/{len(enforce_list)}"
                     )
 
-                    # RL 학습을 위한 데이터 저장 (각 선택된 콘텐츠별로)
+                    # RL 학습 데이터 저장 및 학습
                     for ctype, idx in enforce_list:
                         cands = cand_dict.get(ctype, [])
                         if idx < 0 or idx >= len(cands):
@@ -211,8 +241,9 @@ class ExperimentRunner:
                             for t, cs in next_cand_dict.items()
                         }
 
-                        # 개별 콘텐츠별 보상을 전체 보상에서 분할 (단순화)
-                        individual_reward = total_reward / len(enforce_list)
+                        individual_reward = info.get("individual_rewards", {}).get(
+                            int(getattr(selected, "id", -1)), 0.0
+                        )
 
                         agent.store(
                             state,
@@ -222,17 +253,16 @@ class ExperimentRunner:
                             next_cembs,
                             done,
                         )
-
                         agent.learn()
                         state = next_state
 
                 logging.info(
-                    f"--- Episode {ep+1} End. Agent Epsilon: {getattr(agent, 'epsilon', float('nan')):.3f} ---"
+                    f"--- Episode {ep} End. Agent Epsilon: {getattr(agent, 'epsilon', float('nan')):.3f} ---"
                 )
                 episode_metrics.append(
                     {
                         "seed": seed,
-                        "episode": ep + 1,
+                        "episode": ep,
                         "query": query,
                         "total_reward": total_reward,
                         "recommendations": rec_count,
@@ -244,10 +274,25 @@ class ExperimentRunner:
                         "datetime": datetime.now().isoformat(),
                     }
                 )
+
+                if ep % 5 == 0:
+                    save_dir = "saved_models"
+                    os.makedirs(save_dir, exist_ok=True)
+                    model_path = os.path.join(
+                        save_dir, f"dqn_model_seed{seed}_ep{ep}.pth"
+                    )
+                    agent.save(model_path)
+                    logging.info(f"Model saved to {model_path}")
+
             except Exception as e:
-                logging.error(
-                    f"Error in episode {ep+1}, seed {seed}: {e}", exc_info=True
-                )
+                logging.error(f"Error in episode {ep}, seed {seed}: {e}", exc_info=True)
+
+        # 최종 모델 저장
+        save_dir = "saved_models"
+        os.makedirs(save_dir, exist_ok=True)
+        final_model_path = os.path.join(save_dir, f"dqn_model_seed{seed}_final.pth")
+        agent.save(final_model_path)
+        logging.info(f"Final model saved to {final_model_path}")
 
         self.save_results(episode_metrics)
 

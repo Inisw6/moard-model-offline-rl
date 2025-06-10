@@ -55,7 +55,6 @@ class QueryCandidateGenerator(BaseCandidateGenerator):
             # 여기서는 모든 타입에 빈 리스트 반환
             for t in types:
                 out[t] = []
-            # print("Warning: 'search_query_text' column not found in all_contents_df.")
             return out
 
         # 실제 필터링 로직

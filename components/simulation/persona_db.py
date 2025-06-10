@@ -1,23 +1,42 @@
 import os
 import random
-import sqlite3
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional
+
+import pandas as pd
+from sqlalchemy import Column, Integer, String, create_engine
+from sqlalchemy.orm import declarative_base, relationship, sessionmaker
+
+# SQLite 데이터베이스 설정
+DB_PATH: str = "./data/personas.db"
+DATABASE_URL = f"sqlite:///{DB_PATH}"
+
+Base = declarative_base()
+engine = create_engine(DATABASE_URL)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
 @dataclass
 class SimulationPersona:
     """시뮬레이션용 페르소나 정보"""
-
     persona_id: int
     mbti: str
     investment_level: int  # 1: 초보, 2: 중급, 3: 고급
 
 
-class PersonaDB:
-    """SQLite 기반 페르소나 데이터베이스 관리자"""
+class Persona(Base):
+    """페르소나 테이블 정의"""
+    __tablename__ = "personas"
 
-    def __init__(self, db_path: str = "data/personas.db"):
+    persona_id = Column(Integer, primary_key=True)
+    mbti = Column(String(4), nullable=False)
+    investment_level = Column(Integer, nullable=False)  # 1: 초보, 2: 중급, 3: 고급
+
+
+class PersonaDB:
+    """SQLAlchemy 기반 페르소나 데이터베이스 관리자"""
+
+    def __init__(self, db_path: str = DB_PATH):
         self.db_path = db_path
         # 디렉토리가 없으면 생성
         os.makedirs(os.path.dirname(db_path), exist_ok=True)
@@ -26,95 +45,96 @@ class PersonaDB:
 
     def _init_database(self):
         """데이터베이스 테이블 초기화"""
-        with sqlite3.connect(self.db_path) as conn:
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS personas (
-                    persona_id INTEGER PRIMARY KEY,
-                    mbti TEXT NOT NULL,
-                    investment_level INTEGER NOT NULL
-                )
-            """
-            )
-            conn.commit()
+        Base.metadata.create_all(bind=engine)
 
     def _populate_default_personas(self):
         """기본 페르소나들을 데이터베이스에 추가"""
-        # 이미 데이터가 있는지 확인
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.execute("SELECT COUNT(*) FROM personas")
-            count = cursor.fetchone()[0]
-
+        db = get_db_session()
+        try:
+            # 이미 데이터가 있는지 확인
+            count = db.query(Persona).count()
             if count > 0:
                 return  # 이미 데이터가 있으면 스킵
 
-        import json
+            import json
+            with open("data/default_personas.json", "r", encoding="utf-8") as f:
+                default_personas = json.load(f)
 
-        with open("data/default_personas.json", "r", encoding="utf-8") as f:
-            default_personas = json.load(f)
-
-        for persona in default_personas:
-            # 각 페르소나를 SimulationPersona 객체로 변환
-            persona_ = SimulationPersona(
-                persona_id=persona["persona_id"],
-                mbti=persona["mbti"],
-                investment_level=persona["investment_level"],
-            )
-            self._insert_persona(persona_)
-
-        with sqlite3.connect(self.db_path) as conn:
             for persona in default_personas:
-                conn.execute(
-                    """
-                    INSERT OR REPLACE INTO personas 
-                    (persona_id, mbti, investment_level)
-                    VALUES (?, ?, ?)
-                """,
-                    (persona.persona_id, persona.mbti, persona.investment_level),
+                db_persona = Persona(
+                    persona_id=persona["persona_id"],
+                    mbti=persona["mbti"],
+                    investment_level=persona["investment_level"]
                 )
-            conn.commit()
+                db.add(db_persona)
+            db.commit()
+        finally:
+            db.close()
 
     def get_persona_by_id(self, persona_id: int) -> Optional[SimulationPersona]:
         """ID로 페르소나 조회"""
-        with sqlite3.connect(self.db_path) as conn:
-            conn.row_factory = sqlite3.Row
-            cursor = conn.execute(
-                "SELECT * FROM personas WHERE persona_id = ?", (persona_id,)
-            )
-            row = cursor.fetchone()
-
-            if row:
-                return SimulationPersona(**dict(row))
+        db = get_db_session()
+        try:
+            persona = db.query(Persona).filter(Persona.persona_id == persona_id).first()
+            if persona:
+                return SimulationPersona(
+                    persona_id=persona.persona_id,
+                    mbti=persona.mbti,
+                    investment_level=persona.investment_level
+                )
             return None
+        finally:
+            db.close()
 
     def get_all_personas(self) -> List[SimulationPersona]:
         """모든 페르소나 조회"""
-        with sqlite3.connect(self.db_path) as conn:
-            conn.row_factory = sqlite3.Row
-            cursor = conn.execute("SELECT * FROM personas")
-            rows = cursor.fetchall()
-
-            return [SimulationPersona(**dict(row)) for row in rows]
+        db = get_db_session()
+        try:
+            personas = db.query(Persona).all()
+            return [
+                SimulationPersona(
+                    persona_id=p.persona_id,
+                    mbti=p.mbti,
+                    investment_level=p.investment_level
+                )
+                for p in personas
+            ]
+        finally:
+            db.close()
 
     def get_personas_by_level(self, investment_level: int) -> List[SimulationPersona]:
         """투자 레벨별 페르소나 조회"""
-        with sqlite3.connect(self.db_path) as conn:
-            conn.row_factory = sqlite3.Row
-            cursor = conn.execute(
-                "SELECT * FROM personas WHERE investment_level = ?", (investment_level,)
-            )
-            rows = cursor.fetchall()
-
-            return [SimulationPersona(**dict(row)) for row in rows]
+        db = get_db_session()
+        try:
+            personas = db.query(Persona).filter(
+                Persona.investment_level == investment_level
+            ).all()
+            return [
+                SimulationPersona(
+                    persona_id=p.persona_id,
+                    mbti=p.mbti,
+                    investment_level=p.investment_level
+                )
+                for p in personas
+            ]
+        finally:
+            db.close()
 
     def get_personas_by_mbti(self, mbti: str) -> List[SimulationPersona]:
         """MBTI별 페르소나 조회"""
-        with sqlite3.connect(self.db_path) as conn:
-            conn.row_factory = sqlite3.Row
-            cursor = conn.execute("SELECT * FROM personas WHERE mbti = ?", (mbti,))
-            rows = cursor.fetchall()
-
-            return [SimulationPersona(**dict(row)) for row in rows]
+        db = get_db_session()
+        try:
+            personas = db.query(Persona).filter(Persona.mbti == mbti).all()
+            return [
+                SimulationPersona(
+                    persona_id=p.persona_id,
+                    mbti=p.mbti,
+                    investment_level=p.investment_level
+                )
+                for p in personas
+            ]
+        finally:
+            db.close()
 
     def get_random_persona(self) -> SimulationPersona:
         """랜덤 페르소나 선택"""
@@ -137,6 +157,15 @@ class PersonaDB:
             }
 
         return user_db_func
+
+
+def get_db_session():
+    """
+    SQLAlchemy 세션을 생성하고 반환합니다.
+    호출자는 세션 사용 후 db.close()를 호출해야 합니다.
+    """
+    db = SessionLocal()
+    return db
 
 
 # 전역 인스턴스

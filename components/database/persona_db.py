@@ -3,9 +3,8 @@ import random
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional
 
-import pandas as pd
 from sqlalchemy import Column, Integer, String, create_engine
-from sqlalchemy.orm import declarative_base, relationship, sessionmaker
+from sqlalchemy.orm import declarative_base, sessionmaker
 
 # SQLite 데이터베이스 설정
 DB_PATH: str = "./data/personas.db"
@@ -19,6 +18,7 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 @dataclass
 class SimulationPersona:
     """시뮬레이션용 페르소나 정보"""
+
     persona_id: int
     mbti: str
     investment_level: int  # 1: 초보, 2: 중급, 3: 고급
@@ -26,6 +26,7 @@ class SimulationPersona:
 
 class Persona(Base):
     """페르소나 테이블 정의"""
+
     __tablename__ = "personas"
 
     persona_id = Column(Integer, primary_key=True)
@@ -57,6 +58,7 @@ class PersonaDB:
                 return  # 이미 데이터가 있으면 스킵
 
             import json
+
             with open("data/default_personas.json", "r", encoding="utf-8") as f:
                 default_personas = json.load(f)
 
@@ -64,7 +66,7 @@ class PersonaDB:
                 db_persona = Persona(
                     persona_id=persona["persona_id"],
                     mbti=persona["mbti"],
-                    investment_level=persona["investment_level"]
+                    investment_level=persona["investment_level"],
                 )
                 db.add(db_persona)
             db.commit()
@@ -80,7 +82,7 @@ class PersonaDB:
                 return SimulationPersona(
                     persona_id=persona.persona_id,
                     mbti=persona.mbti,
-                    investment_level=persona.investment_level
+                    investment_level=persona.investment_level,
                 )
             return None
         finally:
@@ -95,7 +97,7 @@ class PersonaDB:
                 SimulationPersona(
                     persona_id=p.persona_id,
                     mbti=p.mbti,
-                    investment_level=p.investment_level
+                    investment_level=p.investment_level,
                 )
                 for p in personas
             ]
@@ -106,14 +108,16 @@ class PersonaDB:
         """투자 레벨별 페르소나 조회"""
         db = get_db_session()
         try:
-            personas = db.query(Persona).filter(
-                Persona.investment_level == investment_level
-            ).all()
+            personas = (
+                db.query(Persona)
+                .filter(Persona.investment_level == investment_level)
+                .all()
+            )
             return [
                 SimulationPersona(
                     persona_id=p.persona_id,
                     mbti=p.mbti,
-                    investment_level=p.investment_level
+                    investment_level=p.investment_level,
                 )
                 for p in personas
             ]
@@ -129,7 +133,7 @@ class PersonaDB:
                 SimulationPersona(
                     persona_id=p.persona_id,
                     mbti=p.mbti,
-                    investment_level=p.investment_level
+                    investment_level=p.investment_level,
                 )
                 for p in personas
             ]

@@ -5,6 +5,7 @@ from typing import Dict, List
 import numpy as np
 import torch
 import torch.nn.functional as F
+import logging
 
 from components.core.base import BaseAgent
 from components.registry import register
@@ -73,7 +74,6 @@ class DQNAgent(BaseAgent):
         Returns:
             int: 선택한 콘텐츠 인덱스
         """
-        self.step_count += 1
         if random.random() < self.epsilon:
             return random.randrange(len(candidate_embs))
         us = torch.FloatTensor(user_state).unsqueeze(0).to(self.device)
@@ -111,6 +111,9 @@ class DQNAgent(BaseAgent):
         """리플레이 버퍼에서 샘플을 추출해 Q 네트워크를 업데이트합니다."""
         if len(self.buffer) < self.batch_size:
             return
+
+        self.step_count += 1
+
         user_states, content_embs, rewards, next_info, dones = self.buffer.sample(
             self.batch_size
         )
@@ -149,6 +152,9 @@ class DQNAgent(BaseAgent):
 
         self.epsilon = max(self.epsilon * self.epsilon_dec, self.epsilon_min)
         if self.step_count % self.update_freq == 0:
+            logging.info(
+                f"Step {self.step_count}: Loss = {loss.item()}, Epsilon = {self.epsilon:.4f}"
+            )
             self.target_q_net.load_state_dict(self.q_net.state_dict())
 
     def save(self, path: str) -> None:

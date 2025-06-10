@@ -164,3 +164,23 @@ class BaseRewardFn(ABC):
         return: 보상(float)
         """
         raise NotImplementedError
+
+
+class BaseResponseSimulator(ABC):
+    """사용자 반응 시뮬레이터의 기본 클래스입니다."""
+
+    @abstractmethod
+    def simulate_responses(
+        self, selected_contents: List[Dict], context: Dict[str, Any]
+    ) -> List[Dict[str, Any]]:
+        """
+        주어진 콘텐츠에 대한 사용자 반응을 시뮬레이션합니다.
+
+        Args:
+            selected_contents (List[Dict]): 추천된 콘텐츠 리스트.
+            context (Dict[str, Any]): 시뮬레이션에 필요한 추가 컨텍스트.
+
+        Returns:
+            List[Dict[str, Any]]: 각 콘텐츠에 대한 사용자 반응 리스트.
+        """
+        raise NotImplementedError

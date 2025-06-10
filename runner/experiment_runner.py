@@ -176,7 +176,7 @@ class ExperimentRunner:
                     cand_dict: Dict[str, List[Any]] = env.get_candidates()
                     for ctype, cands in cand_dict.items():
                         for cand in cands:
-                            cid = getattr(cand, "id", id(cand))
+                            cid = cand.get("id")
                             if cid not in emb_cache:
                                 emb_cache[cid] = embedder.embed_content(cand)
 
@@ -227,22 +227,20 @@ class ExperimentRunner:
                             continue
 
                         selected = cands[idx]
-                        cid = getattr(selected, "id", id(selected))
+                        cid = selected.get("id")
                         selected_emb = emb_cache[cid]
 
                         next_cand_dict: Dict[str, List[Any]] = env.get_candidates()
                         next_cembs: Dict[str, List[Any]] = {
                             t: [
-                                emb_cache.get(
-                                    getattr(c, "id", id(c)), embedder.embed_content(c)
-                                )
+                                emb_cache.get(c.get("id"), embedder.embed_content(c))
                                 for c in cs
                             ]
                             for t, cs in next_cand_dict.items()
                         }
 
                         individual_reward = info.get("individual_rewards", {}).get(
-                            int(getattr(selected, "id", -1)), 0.0
+                            int(selected.get("id")), 0.0
                         )
 
                         agent.store(
@@ -255,7 +253,6 @@ class ExperimentRunner:
                         )
                         agent.learn()
                         state = next_state
-
                 logging.info(
                     f"--- Episode {ep} End. Agent Epsilon: {getattr(agent, 'epsilon', float('nan')):.3f} ---"
                 )

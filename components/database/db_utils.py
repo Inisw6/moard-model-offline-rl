@@ -1,6 +1,7 @@
 import uuid
 
 import pandas as pd
+from typing import List
 from sqlalchemy import (
     BigInteger,
     Column,
@@ -184,6 +185,19 @@ def get_users() -> pd.DataFrame:
     finally:
         db.close()
     return df
+
+
+def get_stock_names() -> List[str]:
+    """
+    stock_info 테이블에서 모든 주식 이름을 반환합니다.
+    """
+    db = get_db_session()
+    try:
+        query = db.query(StockInfo.name)
+        stock_names = [row[0] for row in query.all()]
+    finally:
+        db.close()
+    return stock_names
 
 
 def get_stock_info() -> pd.DataFrame:

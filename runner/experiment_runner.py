@@ -97,7 +97,6 @@ class ExperimentRunner:
         context = RecContextManager(cfg["env"]["params"]["cold_start"])
 
         # 사용자 반응 시뮬레이터 생성
-
         sim_cfg = cfg["response_simulator"]
         sim_type = sim_cfg["type"]
         sim_params = sim_cfg.get("params", {}).copy()
@@ -246,10 +245,26 @@ class ExperimentRunner:
                         "datetime": datetime.now().isoformat(),
                     }
                 )
+
+                # 에피소드가 끝날 때마다 모델 저장
+                if (ep + 1) % 5 == 0:  # 5 에피소드마다 저장
+                    save_dir = "saved_models"
+                    os.makedirs(save_dir, exist_ok=True)
+                    model_path = os.path.join(save_dir, f"dqn_model_seed{seed}_ep{ep+1}.pth")
+                    agent.save(model_path)
+                    logging.info(f"Model saved to {model_path}")
+
             except Exception as e:
                 logging.error(
                     f"Error in episode {ep+1}, seed {seed}: {e}", exc_info=True
                 )
+
+        # 최종 모델 저장
+        save_dir = "saved_models"
+        os.makedirs(save_dir, exist_ok=True)
+        final_model_path = os.path.join(save_dir, f"dqn_model_seed{seed}_final.pth")
+        agent.save(final_model_path)
+        logging.info(f"Final model saved to {final_model_path}")
 
         self.save_results(episode_metrics)
 

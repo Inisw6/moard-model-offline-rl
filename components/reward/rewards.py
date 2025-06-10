@@ -1,4 +1,4 @@
-from typing import Dict, List
+from typing import Dict, List, Tuple
 
 from components.core.base import BaseRewardFn
 from components.registry import register
@@ -32,7 +32,7 @@ class DefaultRewardFunction(BaseRewardFn):
 
     def calculate_from_topk_responses(
         self, all_responses: List[Dict]
-    ) -> tuple[float, Dict[int, float]]:
+    ) -> Tuple[float, Dict[int, float]]:
         """
         선택된 top-k 콘텐츠에 대한 LLM 응답을 기반으로 보상을 계산합니다.
 
@@ -41,7 +41,7 @@ class DefaultRewardFunction(BaseRewardFn):
                           [{"content_id": int, "clicked": bool, "dwell_time": int}, ...]
 
         Returns:
-            tuple[float, Dict[int, float]]: (총 보상 값, {content_id: reward, ...})
+            Tuple[float, Dict[int, float]]: (총 보상 값, {content_id: reward, ...})
         """
         total_reward = 0.0
         individual_rewards = {}
@@ -51,7 +51,7 @@ class DefaultRewardFunction(BaseRewardFn):
             content_id = int(response["content_id"])
             clicked = response["clicked"]
             dwell_time = response["dwell_time"]
-            
+
             # calculate 함수를 사용하여 개별 보상 계산
             reward = self.calculate(clicked=clicked, dwell_time=dwell_time)
             individual_rewards[content_id] = reward

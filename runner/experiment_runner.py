@@ -158,8 +158,8 @@ class ExperimentRunner:
 
         episode_metrics = []
 
-
         for ep, query in enumerate(queries, start=1):
+            qvalue_list = []
             try:
                 # 각 에피소드 시작 시 로그 출력
                 logging.info(
@@ -180,7 +180,7 @@ class ExperimentRunner:
                             cid = cand.get("id")
                             if cid not in emb_cache:
                                 emb_cache[cid] = embedder.embed_content(cand)
-                                
+
                     # ε-greedy를 통한 슬레이트 선택
                     if random.random() < agent.epsilon:
                         # Exploration: 무작위 슬레이트 생성
@@ -197,6 +197,9 @@ class ExperimentRunner:
                         )
                         enforce_list: List[Tuple[str, int]] = enforce_type_constraint(
                             q_values, top_k=max_recs
+                        )
+                        qvalue_list.extend(
+                            [q_values[t][idx] for t, idx in enforce_list]
                         )
 
                     # step 실행
@@ -262,16 +265,16 @@ class ExperimentRunner:
                     f"--- Episode {ep} End. Agent Epsilon: {getattr(agent, 'epsilon', float('nan')):.3f} ---"
                 )
 
-                # 수정
                 # 에피소드 종료 후 Q-value 분산 계산산
                 if qvalue_list:
                     qvalue_variance = np.var(qvalue_list)
                 else:
-                    qvalue_variance = float('nan')
+                    qvalue_variance = float("nan")
 
-                logging.info(f"--- Q-value Variance (Episode {ep+1}): {qvalue_variance:.6f}")
+                logging.info(
+                    f"--- Q-value Variance (Episode {ep+1}): {qvalue_variance:.6f}"
+                )
 
-                # 수정
                 # 기존 메트릭 딕셔너리에 qvalue_variance값 추가가
                 episode_metrics.append(
                     {
@@ -286,7 +289,7 @@ class ExperimentRunner:
                         ),
                         "epsilon": getattr(agent, "epsilon", float("nan")),
                         "datetime": datetime.now().isoformat(),
-                        "qvalue_variance": qvalue_variance
+                        "qvalue_variance": qvalue_variance,
                     }
                 )
 

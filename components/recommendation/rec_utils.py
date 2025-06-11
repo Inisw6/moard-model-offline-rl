@@ -104,7 +104,7 @@ def compute_all_q_values(
         content_embs = []
         for c in contents:
             # 각 콘텐츠마다 캐시 우선 조회
-            cid = getattr(c, "id", id(c))
+            cid = c.get("id")
             if emb_cache is not None and cid in emb_cache:
                 content_emb = emb_cache[cid]
             else:

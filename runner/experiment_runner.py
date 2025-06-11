@@ -162,11 +162,11 @@ class ExperimentRunner:
             try:
                 # 각 에피소드 시작 시 로그 출력
                 logging.info(
-                    f"\n--- Episode {ep+1}/{total_eps} (seed={seed}, query={query}) ---"
+                    f"\n--- Episode {ep}/{total_eps} (seed={seed}, query={query}) ---"
                 )
 
                 state, _ = env.reset(options={"query": query})
-                done: bool = False
+                done = False
                 total_reward = 0.0
                 rec_count = 0
                 emb_cache: Dict[Any, Any] = {}
@@ -176,11 +176,11 @@ class ExperimentRunner:
                     cand_dict: Dict[str, List[Any]] = env.get_candidates()
                     for ctype, cands in cand_dict.items():
                         for cand in cands:
-                            cid = getattr(cand, "id", id(cand))
+                            cid = cand.get("id")
                             if cid not in emb_cache:
                                 emb_cache[cid] = embedder.embed_content(cand)
 
-                    # ε–greedy 탐험/활용 분기
+                    # ε-greedy를 통한 슬레이트 선택
                     if random.random() < agent.epsilon:
                         # Exploration: 무작위 슬레이트 생성
                         enforce_list: List[Tuple[str, int]] = []
@@ -198,14 +198,13 @@ class ExperimentRunner:
                             q_values, top_k=max_recs
                         )
 
-                    # 환경에 한 번에 step 실행
+                    # step 실행
                     step_result = env.step(enforce_list)
-                    if (
-                        not isinstance(step_result, (tuple, list))
-                        or len(step_result) != 5
+                    if not (
+                        isinstance(step_result, (tuple, list)) and len(step_result) == 5
                     ):
                         raise ValueError(
-                            "env.step must return (next_state, reward, done, truncated, info)"
+                            "env.step must return a tuple or list of length 5: (next_state, reward, done, truncated, info)"
                         )
 
                     next_state, total_reward, step_done, truncated, info = step_result
@@ -220,6 +219,16 @@ class ExperimentRunner:
                         f"    Clicks: {info.get('total_clicks', 0)}/{len(enforce_list)}"
                     )
 
+                    # 계산 로직 한번만 실행
+                    next_cand_dict: Dict[str, List[Any]] = env.get_candidates()
+                    next_cembs: Dict[str, List[Any]] = {
+                        t: [
+                            emb_cache.get(c.get("id"), embedder.embed_content(c))
+                            for c in cs
+                        ]
+                        for t, cs in next_cand_dict.items()
+                    }
+
                     # RL 학습 데이터 저장 및 학습
                     for ctype, idx in enforce_list:
                         cands = cand_dict.get(ctype, [])
@@ -227,22 +236,11 @@ class ExperimentRunner:
                             continue
 
                         selected = cands[idx]
-                        cid = getattr(selected, "id", id(selected))
+                        cid = selected.get("id")
                         selected_emb = emb_cache[cid]
 
-                        next_cand_dict: Dict[str, List[Any]] = env.get_candidates()
-                        next_cembs: Dict[str, List[Any]] = {
-                            t: [
-                                emb_cache.get(
-                                    getattr(c, "id", id(c)), embedder.embed_content(c)
-                                )
-                                for c in cs
-                            ]
-                            for t, cs in next_cand_dict.items()
-                        }
-
                         individual_reward = info.get("individual_rewards", {}).get(
-                            int(getattr(selected, "id", -1)), 0.0
+                            int(selected.get("id")), 0.0
                         )
 
                         agent.store(
@@ -253,8 +251,11 @@ class ExperimentRunner:
                             next_cembs,
                             done,
                         )
-                        agent.learn()
-                        state = next_state
+                    # 에이전트 학습 -> 위치에 따라 다름, 지금은 6개 모두 추천 작업 진행 후 학습
+                    agent.learn()
+                    state = next_state
+                    # ε 감소: 한 env.step 당 한 번만 적용
+                    agent.decay_epsilon()
 
                 logging.info(
                     f"--- Episode {ep} End. Agent Epsilon: {getattr(agent, 'epsilon', float('nan')):.3f} ---"

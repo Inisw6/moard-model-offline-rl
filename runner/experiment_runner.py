@@ -142,6 +142,7 @@ class ExperimentRunner:
         episode_metrics = []
 
         for ep in range(total_eps):
+            qvalue_list = [] # 수정
             try:
                 logging.info(f"\n--- Episode {ep+1}/{total_eps} (seed={seed}) ---")
                 # 기존처럼 쿼리 하드코딩 (나중에 변경 가능)
@@ -164,6 +165,11 @@ class ExperimentRunner:
                     q_values: Dict[str, List[float]] = compute_all_q_values(
                         state, cand_dict, embedder, agent, emb_cache=emb_cache
                     )
+
+                    # 수정
+                    # qvalue_list에 extend로 flatten
+                    for qlist in q_values.values():
+                        qvalue_list.extend(qlist)
 
                     enforce_list: List[Tuple[str, int]] = enforce_type_constraint(
                         q_values, top_k=max_recs
@@ -229,6 +235,18 @@ class ExperimentRunner:
                 logging.info(
                     f"--- Episode {ep+1} End. Agent Epsilon: {getattr(agent, 'epsilon', float('nan')):.3f} ---"
                 )
+
+                # 수정
+                # 에피소드 종료 후 Q-value 분산 계산산
+                if qvalue_list:
+                    qvalue_variance = np.var(qvalue_list)
+                else:
+                    qvalue_variance = float('nan')
+
+                logging.info(f"--- Q-value Variance (Episode {ep+1}): {qvalue_variance:.6f}")
+
+                # 수정
+                # 기존 메트릭 딕셔너리에 qvalue_variance값 추가가
                 episode_metrics.append(
                     {
                         "seed": seed,
@@ -242,6 +260,7 @@ class ExperimentRunner:
                         ),
                         "epsilon": getattr(agent, "epsilon", float("nan")),
                         "datetime": datetime.now().isoformat(),
+                        "qvalue_variance": qvalue_variance
                     }
                 )
             except Exception as e:

@@ -265,15 +265,16 @@ class ExperimentRunner:
                     f"--- Episode {ep} End. Agent Epsilon: {getattr(agent, 'epsilon', float('nan')):.3f} ---"
                 )
 
-                # 에피소드 종료 후 Q-value 분산 계산산
+                # 에피소드 종료 후 Q-value 분산 계산
+                # todo: 여기 고려해야할거 같아요... 없는경우...
+                qvalue_variance = float("nan")
                 if qvalue_list:
                     qvalue_variance = np.var(qvalue_list)
-
                 logging.info(
                     f"--- Q-value Variance (Episode {ep}): {qvalue_variance:.6f}"
                 )
 
-                # 기존 메트릭 딕셔너리에 qvalue_variance값 추가가
+                # 평가용 메트릭스 저장
                 episode_metrics.append(
                     {
                         "seed": seed,

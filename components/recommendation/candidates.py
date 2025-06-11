@@ -9,14 +9,20 @@ from components.database.db_utils import get_contents
 
 @register("query")
 class QueryCandidateGenerator(BaseCandidateGenerator):
-    """
-    각 콘텐츠 타입별로 관심사(Query)에 기반해 max_count_by_content개의 후보를 반환하는 후보군 생성기입니다.
+    """쿼리(관심사) 기반 후보군 생성기.
+
+    각 콘텐츠 타입별로 사용자의 관심사(Query)에 따라 최대 max_count_by_content개 후보를 반환합니다.
+
+    Attributes:
+        max_count_by_content (int): 각 타입별 반환할 후보군의 최대 개수.
+        all_contents_df (pd.DataFrame): 콘텐츠 전체 목록 데이터프레임.
     """
 
-    def __init__(self, max_count_by_content: int):
-        """
+    def __init__(self, max_count_by_content: int) -> None:
+        """QueryCandidateGenerator 생성자.
+
         Args:
-            max_count_by_content (int): 각 타입별 반환할 후보군의 최대 개수
+            max_count_by_content (int): 각 타입별 반환할 후보군의 최대 개수.
         """
         self.max_count_by_content = max_count_by_content
         self.all_contents_df = get_contents()
@@ -24,15 +30,13 @@ class QueryCandidateGenerator(BaseCandidateGenerator):
         # self.records_by_type = {...}  # 향후 캐시 구조 등으로 확장 가능
 
     def get_candidates(self, query: str) -> Dict[str, List[Dict[str, Any]]]:
-        """
-        사용자의 관심사(query)를 바탕으로 각 콘텐츠 타입별 후보를 반환합니다.
-        all_contents_df에 있는 search_query_text 필터링합니다.
+        """사용자 관심사(쿼리)에 따라 각 콘텐츠 타입별 후보군을 반환합니다.
 
         Args:
-            query (str): 필터링할 검색어 문자열
+            query (str): 필터링할 검색어 문자열.
 
         Returns:
-            Dict[str, List[Dict[str, Any]]]: {콘텐츠타입(str): [콘텐츠 dict, ...]}
+            Dict[str, List[Dict[str, Any]]]: {콘텐츠 타입명(str): [콘텐츠 dict, ...]}
         """
         types = (
             self.all_contents_df["type"].unique()

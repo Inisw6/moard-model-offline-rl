@@ -9,12 +9,28 @@ from typing import Dict
 
 
 class Horizon(str, Enum):
+    """투자 기간(Enum).
+
+    Values:
+        SHORT: 단기 투자
+        MEDIUM: 중기 투자
+        LONG: 장기 투자
+    """
+
     SHORT = "short"
     MEDIUM = "medium"
     LONG = "long"
 
 
 class AnalysisStyle(str, Enum):
+    """투자 분석 스타일(Enum).
+
+    Values:
+        FUNDAMENTAL: 펀더멘털 분석
+        TECHNICAL: 기술적 분석
+        MIXED: 혼합 분석
+    """
+
     FUNDAMENTAL = "fundamental"
     TECHNICAL = "technical"
     MIXED = "mixed"
@@ -224,6 +240,25 @@ MBTI_FALLBACK = {
 
 @dataclass
 class PersonaConfig:
+    """투자자 페르소나 구성 정보.
+
+    Attributes:
+        mbti (str): MBTI 유형.
+        investment_level (int): 투자 레벨(1~5).
+        user_id (int): 사용자 고유 ID.
+        description (str): 설명.
+        preferences (Dict[str, float]): 채널별 선호도.
+        risk_tolerance (float): 위험 허용도 (0~1).
+        decision_speed (float): 의사결정 속도 (0~1).
+        social_influence (float): 사회적 영향력 민감도 (0~1).
+        investment_horizon (Horizon): 투자 기간.
+        analysis_preference (AnalysisStyle): 분석 성향.
+        volatility_tolerance (float): 변동성 허용도 (0~1).
+        dividend_preference (float): 배당 선호도 (0~1).
+        expert_reliance (float): 전문가 의존도 (0~1).
+        created_at (str): 생성 시각(UTC ISO8601).
+    """
+
     mbti: str
     investment_level: int  # 1–5
     user_id: int  # 사용자 고유 ID
@@ -244,7 +279,8 @@ class PersonaConfig:
     )
 
     # ------------------------ Validation ---------------------------------- #
-    def __post_init__(self):
+    def __post_init__(self) -> None:
+        """입력값 유효성 검사. 0~1 범위 값/레벨 체크."""
         # 0~1 범위 체크
         for f_name in [
             "risk_tolerance",
@@ -266,16 +302,34 @@ class PersonaConfig:
 
     # ----------------------- Helper methods ------------------------------- #
     def get_persona_id(self) -> str:
+        """페르소나 고유 ID 문자열을 반환합니다.
+
+        Returns:
+            str: "{mbti}_{investment_level}_{user_id}" 형식의 문자열.
+        """
         return f"{self.mbti}_{self.investment_level}_{self.user_id}"
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> Dict:
+        """PersonaConfig 객체를 dict로 변환합니다.
+
+        Returns:
+            dict: 직렬화된 딕셔너리 (Enum은 값으로 변환).
+        """
         data = asdict(self)
         data["investment_horizon"] = self.investment_horizon.value
         data["analysis_preference"] = self.analysis_preference.value
         return data
 
     @classmethod
-    def from_dict(cls, d: dict) -> "PersonaConfig":
+    def from_dict(cls, d: Dict) -> PersonaConfig:
+        """dict로부터 PersonaConfig 인스턴스를 생성합니다.
+
+        Args:
+            d (dict): 직렬화된 데이터.
+
+        Returns:
+            PersonaConfig: 생성된 인스턴스.
+        """
         d = deepcopy(d)
         d["investment_horizon"] = Horizon(d["investment_horizon"])
         d["analysis_preference"] = AnalysisStyle(d["analysis_preference"])
@@ -288,16 +342,15 @@ class PersonaConfig:
 def create_persona_from_user_data(
     user_id: int, mbti: str, investment_level: int
 ) -> PersonaConfig:
-    """
-    사용자 DB 데이터로부터 PersonaConfig 생성
+    """사용자 정보로부터 PersonaConfig 객체를 생성합니다.
 
     Args:
-        user_id: 사용자 ID
-        mbti: MBTI 타입
-        investment_level: 투자 수준 (1-5)
+        user_id (int): 사용자 ID.
+        mbti (str): MBTI 유형.
+        investment_level (int): 투자 수준 (1~5).
 
     Returns:
-        PersonaConfig 인스턴스
+        PersonaConfig: 구성된 페르소나 인스턴스.
     """
     # MBTI 기본값 가져오기 (overrides 없음)
     defaults = deepcopy(MBTI_DEFAULTS.get(mbti, MBTI_FALLBACK))

@@ -8,18 +8,18 @@ env:
 response_simulator:
   # type: random # 또는 llm
   # params: {}
-  type: llm
-  params:
-    # 시뮬레이션 페르소나 설정 (1-100중 선택, null이면 랜덤)
-    persona_id: 5
-    # 페르소나 및 LLM 응답 정보 출력 여부
-    debug: true
-    # LLM 클라이언트 설정 (LLMResponseSimulator 사용 시에만 필요)
-    llm_simulator:
-      params:
-        ollama_url: "http://localhost:11434"
-        model: "llama3.2:3b-instruct-q4_K_M"
-        debug: true
+  type: random
+  # params:
+  #   # 시뮬레이션 페르소나 설정 (1-100중 선택, null이면 랜덤)
+  #   persona_id: 5
+  #   # 페르소나 및 LLM 응답 정보 출력 여부
+  #   debug: true
+  #   # LLM 클라이언트 설정 (LLMResponseSimulator 사용 시에만 필요)
+  #   llm_simulator:
+  #     params:
+  #       ollama_url: "http://localhost:11434"
+  #       model: "llama3.2:3b-instruct-q4_K_M"
+  #       debug: true
 
 agent:
   type: dqn
@@ -30,7 +30,9 @@ agent:
     eps_min: 0.05
     eps_decay: 0.995
     gamma: 0.99
-    update_freq: 100
+    update_freq: 3
+    # 'mse' 또는 'smooth_l1' 중 선택
+    loss_type: "smooth_l1"  
 
 embedder:
   type: simple_concat

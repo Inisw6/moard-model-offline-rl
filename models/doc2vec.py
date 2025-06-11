@@ -12,18 +12,13 @@ from gensim.models.doc2vec import Doc2Vec, TaggedDocument
 
 
 def preprocess_text(text: str) -> List[str]:
-    """
-    텍스트를 전처리하여 토큰 리스트로 반환합니다.
+    """텍스트를 전처리하여 토큰 리스트로 반환합니다.
 
     Args:
-        text (str): 원본 텍스트 (HTML 태그가 포함될 수 있음).
+        text (str): 원본 텍스트. HTML 태그가 포함될 수 있습니다.
 
     Returns:
-        List[str]:
-            HTML 태그 제거 및 공백 기준 분리된 토큰 리스트.
-
-    Raises:
-        None
+        List[str]: HTML 태그가 제거되고 공백 기준으로 분할된 토큰 리스트.
     """
     text = re.sub(r"<.*?>", "", text)
     text = text.strip()
@@ -32,19 +27,16 @@ def preprocess_text(text: str) -> List[str]:
 
 
 def build_tagged_documents(df: pd.DataFrame) -> List[TaggedDocument]:
-    """
-    DataFrame의 각 행을 TaggedDocument 객체로 변환하여 리스트로 반환합니다.
+    """DataFrame의 각 행을 TaggedDocument 객체로 변환합니다.
 
     Args:
-        df (pd.DataFrame): 'title' 및 'description' 컬럼을 포함하는 콘텐츠 데이터프레임.
+        df (pd.DataFrame): 'title' 및 'description' 컬럼을 포함하는 콘텐츠 DataFrame.
 
     Returns:
-        List[TaggedDocument]:
-            각 행마다 전처리된 토큰과 태그(문서 식별자)를 가진 TaggedDocument 객체 리스트.
+        List[TaggedDocument]: 각 행마다 전처리된 토큰과 태그(문서 인덱스)를 가진 TaggedDocument 리스트.
 
     Raises:
-        KeyError:
-            만약 DataFrame에 'title' 또는 'description' 컬럼이 없을 경우.
+        KeyError: 'title' 또는 'description' 컬럼이 DataFrame에 없을 경우 발생.
     """
     documents: List[TaggedDocument] = []
     for idx, row in df.iterrows():
@@ -65,25 +57,19 @@ def train_and_save(
     epochs: int = 40,
     save_path: str = "models/doc2vec.model",
 ) -> None:
-    """
-    Doc2Vec 모델을 학습하고 파일로 저장합니다.
+    """Doc2Vec 모델을 학습하고 파일로 저장합니다.
 
     Args:
-        documents (List[TaggedDocument]): 학습에 사용할 TaggedDocument 객체 리스트.
-        vector_size (int): 학습할 임베딩 벡터의 차원 수. 기본값은 300.
-        window (int): 컨텍스트 윈도우 크기. 기본값은 5.
-        min_count (int): 단어 최소 빈도 수 (빈도 미만 단어 제외). 기본값은 2.
-        epochs (int): 학습 반복 수. 기본값은 40.
-        save_path (str): 모델을 저장할 파일 경로. 디렉토리가 없으면 생성합니다. 기본값은 "models/doc2vec.model".
-
-    Returns:
-        None: 학습된 모델을 지정된 경로에 저장하고 로그를 출력합니다.
+        documents (List[TaggedDocument]): 학습에 사용할 TaggedDocument 리스트.
+        vector_size (int): 임베딩 벡터 차원 (기본값 300).
+        window (int): 컨텍스트 윈도우 크기 (기본값 5).
+        min_count (int): 단어 최소 빈도 (기본값 2).
+        epochs (int): 학습 반복 횟수 (기본값 40).
+        save_path (str): 모델 저장 경로. 디렉토리가 없으면 생성합니다.
 
     Raises:
-        OSError:
-            설정된 save_path의 디렉토리를 생성하거나 모델을 저장할 때 파일 시스템 오류가 발생할 경우.
-        ValueError:
-            documents 리스트가 비어 있거나, Doc2Vec 빌드/학습 중 파라미터가 잘못된 경우.
+        OSError: 디렉토리 생성 또는 모델 저장에 실패할 경우.
+        ValueError: 입력 문서 리스트가 비어 있거나 파라미터가 잘못된 경우.
     """
     model = Doc2Vec(
         vector_size=vector_size,

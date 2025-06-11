@@ -14,22 +14,22 @@ from components.registry import register
 
 @register("simple_user")
 class SimpleUserEmbedder(BaseUserEmbedder):
-    """
-    SimpleUserEmbedder:
-    - 사용자의 최근 로그와 활동을 단순 연결하여 고정 차원 벡터로 변환
-    - 벡터 구성: [평균 ratio, 평균 time, 콘텐츠 타입별 비율, 남은 부분 0 패딩]
+    """사용자 로그 기반 단순 임베딩 추출기.
+
+    - 사용자의 최근 로그와 활동을 단순 연결하여 고정 차원 벡터로 변환합니다.
+    - 벡터 구성: [평균 ratio, 평균 time, 콘텐츠 타입별 비율, 0 패딩]
     """
 
     def __init__(
         self,
         user_dim: int = 30,
         all_contents_df: Optional[object] = None,
-    ):
-        """
+    ) -> None:
+        """SimpleUserEmbedder 생성자.
+
         Args:
-            user_dim (int): 출력할 유저 임베딩 벡터의 차원
-            all_contents_df (Optional[pandas.DataFrame]): 테스트용으로 외부에서 전달할 콘텐츠 DataFrame.
-                                                         None일 경우 get_contents() 호출.
+            user_dim (int): 출력할 유저 임베딩 벡터의 차원.
+            all_contents_df (Optional[pandas.DataFrame]): 테스트용 외부 콘텐츠 DataFrame.
         """
         # 생성시 인자로 전달받은 DataFrame이 없다면 실제 DB에서 가져옴
         self.all_contents_df = (
@@ -59,30 +59,28 @@ class SimpleUserEmbedder(BaseUserEmbedder):
             self.user_dim = user_dim
 
     def output_dim(self) -> int:
-        """
+        """유저 임베딩 벡터의 차원을 반환합니다.
+
         Returns:
-            int: 유저 임베딩 벡터의 차원
+            int: 유저 임베딩 벡터의 차원.
         """
         return self.user_dim
 
     def embed_user(self, user: dict) -> np.ndarray:
-        """
-        사용자의 최근 로그 및 활동을 벡터로 변환
+        """사용자의 최근 로그 및 활동을 벡터로 변환합니다.
 
         Args:
             user (dict): {
-                "user_info": {...},          # 사용자 메타데이터 (예: ID 등)
-                "recent_logs": [             # 로그 정보 리스트
-                    {"ratio": float, "time": float, "content_actual_type": str, ...}, ...
-                ],
+                "user_info": 사용자 정보,
+                "recent_logs": [로그 딕셔너리 목록],
                 "current_time": datetime 객체 (선택)
             }
 
         Returns:
-            np.ndarray of shape (user_dim,):
+            np.ndarray: (user_dim,) 크기의 벡터.
                 [0] = 최근 로그의 평균 ratio
                 [1] = 최근 로그의 평균 time
-                [2:2+N] = 콘텐츠 타입별 비율 (N = 콘텐츠 타입 개수)
+                [2:2+N] = 콘텐츠 타입별 비율
                 [나머지] = 0 패딩
         """
         logs = user.get("recent_logs", [])
@@ -122,14 +120,13 @@ class SimpleUserEmbedder(BaseUserEmbedder):
         return vec.astype(np.float32)
 
     def estimate_preference(self, state: np.ndarray) -> dict:
-        """
-        유저 임베딩 벡터에서 콘텐츠 타입별 선호도 추정
+        """유저 임베딩 벡터에서 콘텐츠 타입별 선호도를 추정합니다.
 
         Args:
-            state (np.ndarray): 길이가 최소 2 + 콘텐츠 타입 개수인 벡터
+            state (np.ndarray): 길이가 최소 2+N인 임베딩 벡터.
 
         Returns:
-            dict: {타입명: 선호도(float)}. 벡터 길이가 부족하면 0 반환
+            dict: {타입명: 선호도(float)}.
         """
         if len(state) < 2 + self.num_content_types:
             return {t: 0.0 for t in self.content_types}
@@ -143,10 +140,10 @@ class SimpleUserEmbedder(BaseUserEmbedder):
 
 @register("sbert_content")
 class SbertContentEmbedder(BaseContentEmbedder):
-    """
-    SbertContentEmbedder:
-    - 사전 학습된 SBERT(Sentence-BERT) 모델을 사용하여 텍스트 기반 콘텐츠를 임베딩
-    - 기본 SBERT 임베딩 차원은 768이며, 지정된 content_dim으로 패딩/자르기
+    """SBERT 기반 텍스트 콘텐츠 임베더.
+
+    - 사전 학습된 SBERT(Sentence-BERT) 모델로 텍스트 기반 콘텐츠 임베딩.
+    - 기본 임베딩 차원은 768, 지정된 content_dim으로 패딩/잘림.
     """
 
     def __init__(
@@ -154,13 +151,13 @@ class SbertContentEmbedder(BaseContentEmbedder):
         content_dim: int = 768,
         model_name: str = "snunlp/KR-SBERT-V40K-klueNLI-augSTS",
         all_contents_df: Optional[object] = None,  # 의존성 주입 가능
-    ):
-        """
+    ) -> None:
+        """SbertContentEmbedder 생성자.
+
         Args:
-            content_dim (int): 출력할 벡터 차원. 사전학습 차원과 다르면 사전학습 차원으로 강제 설정
-            model_name (str): HuggingFace SBERT 모델 이름
-            all_contents_df (Optional[pandas.DataFrame]): 테스트용으로 외부에서 전달할 콘텐츠 DataFrame.
-                                                         None일 경우 get_contents() 호출.
+            content_dim (int): 출력 임베딩 차원 (SBERT 모델 차원과 다르면 자동 보정).
+            model_name (str): 사용할 SBERT 모델명 (HuggingFace 호환).
+            all_contents_df (Optional[pandas.DataFrame]): 외부 콘텐츠 DataFrame.
         """
         # SBERT 모델 로드
         logging.info("SBERT 모델 '%s' 로딩 중...", model_name)
@@ -191,25 +188,21 @@ class SbertContentEmbedder(BaseContentEmbedder):
             self.content_types = ["youtube", "blog", "news"]
 
     def output_dim(self) -> int:
-        """
+        """콘텐츠 임베딩 벡터의 차원을 반환합니다.
+
         Returns:
-            int: 콘텐츠 임베딩 벡터의 차원
+            int: 임베딩 벡터 차원.
         """
         return self.content_dim
 
     def embed_content(self, content: dict) -> np.ndarray:
-        """
-        SBERT를 이용해 콘텐츠를 임베딩
+        """SBERT로 콘텐츠를 임베딩합니다.
 
         Args:
-            content (dict):
-                - "title": str, 콘텐츠 제목
-                - "description": str, 콘텐츠 설명
+            content (dict): {"title": str, "description": str}
 
         Returns:
-            np.ndarray of shape (content_dim,):
-                [0:pretrained_dim] = SBERT 임베딩(float32),
-                필요한 경우 0으로 패딩하거나 잘라냄.
+            np.ndarray: (content_dim,) 크기의 벡터.
         """
         # 제목과 설명을 합쳐서 HTML 태그 제거
         raw_text = content.get("title", "") + content.get("description", "")
@@ -237,10 +230,10 @@ class SbertContentEmbedder(BaseContentEmbedder):
 
 @register("doc2vec_content")
 class Doc2VecContentEmbedder(BaseContentEmbedder):
-    """
-    Doc2VecContentEmbedder:
-    - 사전 학습된 Doc2Vec 모델을 사용하여 텍스트 기반 콘텐츠를 임베딩
-    - 기본 Doc2Vec 차원은 300이며, 지정된 content_dim으로 패딩/자르기
+    """Doc2Vec 기반 텍스트 콘텐츠 임베더.
+
+    - 사전 학습된 Doc2Vec 모델로 텍스트 기반 콘텐츠 임베딩.
+    - 기본 임베딩 차원은 300, 지정된 content_dim으로 패딩/잘림.
     """
 
     def __init__(
@@ -248,13 +241,13 @@ class Doc2VecContentEmbedder(BaseContentEmbedder):
         model_path: str = "models/doc2vec.model",
         content_dim: int = 300,
         all_contents_df: Optional[object] = None,  # 의존성 주입 가능
-    ):
-        """
+    ) -> None:
+        """Doc2VecContentEmbedder 생성자.
+
         Args:
-            model_path (str): 디스크에 저장된 Doc2Vec 모델 경로
-            content_dim (int): 출력할 벡터 차원. Doc2Vec vector_size와 일치해야 함
-            all_contents_df (Optional[pandas.DataFrame]): 테스트용으로 외부에서 전달할 콘텐츠 DataFrame.
-                                                         None일 경우 get_contents() 호출.
+            model_path (str): Doc2Vec 모델 파일 경로.
+            content_dim (int): 출력 임베딩 차원 (Doc2Vec vector_size와 다르면 자동 보정).
+            all_contents_df (Optional[pandas.DataFrame]): 외부 콘텐츠 DataFrame.
         """
         # Doc2Vec 모델 로드
         logging.info("Doc2Vec 모델 '%s' 로딩 중...", model_path)
@@ -285,25 +278,21 @@ class Doc2VecContentEmbedder(BaseContentEmbedder):
             self.content_types = ["youtube", "blog", "news"]
 
     def output_dim(self) -> int:
-        """
+        """콘텐츠 임베딩 벡터의 차원을 반환합니다.
+
         Returns:
-            int: 콘텐츠 임베딩 벡터의 차원
+            int: 임베딩 벡터 차원.
         """
         return self.content_dim
 
     def embed_content(self, content: dict) -> np.ndarray:
-        """
-        Doc2Vec를 이용해 콘텐츠를 임베딩
+        """Doc2Vec로 콘텐츠를 임베딩합니다.
 
         Args:
-            content (dict):
-                - "title": str, 콘텐츠 제목
-                - "description": str, 콘텐츠 설명
+            content (dict): {"title": str, "description": str}
 
         Returns:
-            np.ndarray of shape (content_dim,):
-                [0:pretrained_dim] = Doc2Vec 임베딩(float32),
-                필요한 경우 0으로 패딩하거나 잘라냄.
+            np.ndarray: (content_dim,) 크기의 벡터.
         """
         # 제목과 설명을 합쳐서 HTML 태그 제거 후 토큰화
         raw_text = content.get("title", "") + " " + content.get("description", "")
@@ -328,23 +317,22 @@ class Doc2VecContentEmbedder(BaseContentEmbedder):
 
 @register("simple_content")
 class SimpleContentEmbedder(BaseContentEmbedder):
-    """
-    SimpleContentEmbedder:
-    - 사전 저장된 임베딩(JSON 문자열)과 콘텐츠 타입을 결합하여 벡터 생성
-    - 벡터 구성: [사전학습 임베딩, 타입 원핫 인코딩, 남은 부분 0 패딩]
+    """사전 임베딩 + 타입 원핫 기반 단순 콘텐츠 임베더.
+
+    - 사전 저장된 임베딩(JSON)과 콘텐츠 타입을 결합해 벡터 생성.
+    - 벡터: [사전 임베딩, 타입 원핫, 0 패딩].
     """
 
     def __init__(
         self,
         content_dim: int = 5,
         all_contents_df: Optional[object] = None,  # 의존성 주입 가능
-    ):
-        """
+    ) -> None:
+        """SimpleContentEmbedder 생성자.
+
         Args:
-            content_dim (int): 출력할 콘텐츠 임베딩 벡터의 차원.
-                              콘텐츠 타입 개수 이상이어야 함.
-            all_contents_df (Optional[pandas.DataFrame]): 테스트용으로 외부에서 전달할 콘텐츠 DataFrame.
-                                                         None일 경우 get_contents() 호출.
+            content_dim (int): 출력 임베딩 차원 (타입 개수 이상이어야 함).
+            all_contents_df (Optional[pandas.DataFrame]): 외부 콘텐츠 DataFrame.
         """
         # 의존성 주입된 DataFrame이 없다면 실제 DB에서 가져옴
         self.all_contents_df = (
@@ -374,26 +362,24 @@ class SimpleContentEmbedder(BaseContentEmbedder):
             self.content_dim = content_dim
 
     def output_dim(self) -> int:
-        """
+        """콘텐츠 임베딩 벡터의 차원을 반환합니다.
+
         Returns:
-            int: 콘텐츠 임베딩 벡터의 차원
+            int: 임베딩 벡터 차원.
         """
         return self.content_dim
 
     def embed_content(self, content: dict) -> np.ndarray:
-        """
-        콘텐츠 사전 학습 임베딩과 타입 정보를 결합하여 벡터 생성
+        """콘텐츠의 사전 임베딩 + 타입 정보를 결합한 벡터를 생성합니다.
 
         Args:
-            content (dict):
-                - "embedding": str, JSON으로 인코딩된 숫자 리스트 (사전학습 임베딩)
-                - "type": str, 콘텐츠 타입 (예: "youtube", "blog", "news")
+            content (dict): {
+                "embedding": str,  # JSON 숫자 리스트
+                "type": str,       # 콘텐츠 타입
+            }
 
         Returns:
-            np.ndarray of shape (content_dim,):
-                [0:N]   = 사전학습 임베딩(float32) 또는 값이 없으면 0
-                [N:N+num_content_types] = 타입 원핫 인코딩
-                [나머지] = 0 패딩
+            np.ndarray: (content_dim,) 크기의 벡터.
         """
         # 사전학습 임베딩 문자열 파싱
         if self.pretrained_content_embedding_dim > 0:
@@ -458,23 +444,17 @@ class SimpleContentEmbedder(BaseContentEmbedder):
 
 @register("simple_concat")
 class SimpleConcatEmbedder(BaseEmbedder):
-    """
-    SimpleConcatEmbedder:
-    - SimpleUserEmbedder와 SimpleContentEmbedder를 조합하여 하나의 상위 레벨 임베더를 구성
-    - 지정된 user_embedder와 content_embedder에 위임(delegate)하여 임베딩 수행
+    """SimpleUserEmbedder와 SimpleContentEmbedder를 결합한 임베더.
+
+    - 지정된 user_embedder와 content_embedder에 위임하여 임베딩 수행.
     """
 
-    def __init__(self, user_embedder: dict, content_embedder: dict):
-        """
+    def __init__(self, user_embedder: dict, content_embedder: dict) -> None:
+        """SimpleConcatEmbedder 생성자.
+
         Args:
-            user_embedder (dict): {
-                "type": str, 유저 임베더 타입 이름 (예: "simple_user"),
-                "params": dict, 해당 임베더의 인자
-            }
-            content_embedder (dict): {
-                "type": str, 콘텐츠 임베더 타입 이름 (예: "simple_content"),
-                "params": dict, 해당 임베더의 인자
-            }
+            user_embedder (dict): {"type": str, "params": dict}
+            content_embedder (dict): {"type": str, "params": dict}
         """
         from components.registry import make
 

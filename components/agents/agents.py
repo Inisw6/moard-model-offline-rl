@@ -27,6 +27,7 @@ class DQNAgent(BaseAgent):
         gamma: float,
         update_freq: int,
         capacity: int,
+        loss_type: str = "smooth_l1",  # 'mse' or 'smooth_l1'
         device: str = "cpu",
     ) -> None:
         """
@@ -43,6 +44,7 @@ class DQNAgent(BaseAgent):
             gamma (float): 감가율
             update_freq (int): 타겟 네트워크 업데이트 주기
             capacity (int): 리플레이 버퍼 용량
+            loss_type (str): 손실 함수 타입 ('mse' 또는 'smooth_l1')
             device (str): 'cpu' or 'cuda'
         """
         self.device = torch.device("cuda" if torch.cuda.is_available() else device)
@@ -60,6 +62,7 @@ class DQNAgent(BaseAgent):
         self.epsilon_dec = eps_decay
         self.update_freq = update_freq
         self.step_count = 0
+        self.loss_type = loss_type
 
     def select_action(
         self, user_state: List[float], candidate_embs: List[List[float]]
@@ -144,7 +147,13 @@ class DQNAgent(BaseAgent):
         max_nq = torch.stack(max_next_q_list).unsqueeze(1)
 
         target = rs + self.gamma * max_nq * (1 - ds)
-        loss = F.mse_loss(q_sa, target)
+
+        if self.loss_type == "mse":
+            loss = F.mse_loss(q_sa, target)
+        elif self.loss_type == "smooth_l1":
+            loss = F.smooth_l1_loss(q_sa, target)
+        else:
+            raise ValueError(f"지원하지 않는 loss_type입니다: {self.loss_type}")
 
         self.optimizer.zero_grad()
         loss.backward()

@@ -198,14 +198,13 @@ class ExperimentRunner:
                             q_values, top_k=max_recs
                         )
 
-                    # 환경에 한 번에 step 실행
+                    # 콘텐츠 당 한 번에 step 실행
                     step_result = env.step(enforce_list)
-                    if (
-                        not isinstance(step_result, (tuple, list))
-                        or len(step_result) != 5
+                    if not (
+                        isinstance(step_result, (tuple, list)) and len(step_result) == 5
                     ):
                         raise ValueError(
-                            "env.step must return (next_state, reward, done, truncated, info)"
+                            "env.step must return a tuple or list of length 5: (next_state, reward, done, truncated, info)"
                         )
 
                     next_state, total_reward, step_done, truncated, info = step_result

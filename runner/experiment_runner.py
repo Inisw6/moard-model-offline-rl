@@ -268,11 +268,9 @@ class ExperimentRunner:
                 # 에피소드 종료 후 Q-value 분산 계산산
                 if qvalue_list:
                     qvalue_variance = np.var(qvalue_list)
-                else:
-                    qvalue_variance = float("nan")
 
                 logging.info(
-                    f"--- Q-value Variance (Episode {ep+1}): {qvalue_variance:.6f}"
+                    f"--- Q-value Variance (Episode {ep}): {qvalue_variance:.6f}"
                 )
 
                 # 기존 메트릭 딕셔너리에 qvalue_variance값 추가가

@@ -13,7 +13,7 @@ from sqlalchemy import (
     Text,
     create_engine,
 )
-from sqlalchemy.orm import declarative_base, relationship, sessionmaker
+from sqlalchemy.orm import declarative_base, relationship, sessionmaker, Session
 from sqlalchemy.types import Enum as SAEnum
 
 # UUID 사용 시 PostgreSQL dialect
@@ -29,6 +29,8 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 # 데이터베이스 테이블 정의 (DDL 기반)
 class User(Base):
+    """사용자(users) 테이블 ORM 모델."""
+
     __tablename__ = "users"
     id = Column(BigInteger, primary_key=True, autoincrement=True)
     # SQLite는 UUID 타입을 직접 지원하지 않으므로 CHAR(36) 또는 STRING으로 저장
@@ -40,6 +42,8 @@ class User(Base):
 
 
 class StockInfo(Base):
+    """종목(stock_info) 테이블 ORM 모델."""
+
     __tablename__ = "stock_info"
     id = Column(BigInteger, primary_key=True, autoincrement=True)
     code = Column(String(255))
@@ -52,6 +56,8 @@ class StockInfo(Base):
 
 
 class SearchQuery(Base):
+    """검색 쿼리(search_queries) 테이블 ORM 모델."""
+
     __tablename__ = "search_queries"
     id = Column(BigInteger, primary_key=True, autoincrement=True)
     searched_at = Column(DateTime)
@@ -63,6 +69,8 @@ class SearchQuery(Base):
 
 
 class Content(Base):
+    """콘텐츠(contents) 테이블 ORM 모델."""
+
     __tablename__ = "contents"
     id = Column(BigInteger, primary_key=True, autoincrement=True)
     published_at = Column(DateTime)
@@ -92,6 +100,8 @@ class Content(Base):
 
 
 class Recommendation(Base):
+    """추천(recommendations) 테이블 ORM 모델."""
+
     __tablename__ = "recommendations"
     id = Column(BigInteger, primary_key=True, autoincrement=True)
     recommended_at = Column(DateTime)
@@ -118,6 +128,11 @@ class Recommendation(Base):
 
 # 중간 테이블 (다대다 관계) RecommendationContent 모델로 대체
 class RecommendationContent(Base):
+    """추천-콘텐츠(recommendation_contents) 중간 테이블 ORM 모델.
+
+    추천과 콘텐츠 간의 다대다 연결, 랭킹 정보(rank) 포함.
+    """
+
     __tablename__ = "recommendation_contents"
     content_id = Column(BigInteger, ForeignKey("contents.id"), primary_key=True)
     recommendation_id = Column(
@@ -130,6 +145,8 @@ class RecommendationContent(Base):
 
 
 class StockLog(Base):
+    """종목 조회 이력(stock_logs) 테이블 ORM 모델."""
+
     __tablename__ = "stock_logs"
     id = Column(BigInteger, primary_key=True, autoincrement=True)
     user_id = Column(BigInteger, ForeignKey("users.id"), nullable=False)
@@ -140,6 +157,8 @@ class StockLog(Base):
 
 
 class UserLog(Base):
+    """사용자 로그(user_logs) 테이블 ORM 모델."""
+
     __tablename__ = "user_logs"
     id = Column(BigInteger, primary_key=True, autoincrement=True)
     content_id = Column(BigInteger, ForeignKey("contents.id"), nullable=False)
@@ -157,10 +176,11 @@ class UserLog(Base):
     user = relationship("User", back_populates="user_logs")
 
 
-def get_db_session():
-    """
-    SQLAlchemy 세션을 생성하고 반환합니다.
-    호출자는 세션 사용 후 db.close()를 호출해야 합니다.
+def get_db_session() -> Session:
+    """SQLAlchemy 세션을 생성하고 반환합니다.
+
+    Returns:
+        Session: SQLAlchemy 데이터베이스 세션 객체.
     """
     db = SessionLocal()
     return db
@@ -168,6 +188,10 @@ def get_db_session():
 
 # 테이블 생성 (애플리케이션 시작 시 한 번 호출)
 def create_tables():
+    """모든 테이블을 데이터베이스에 생성합니다.
+
+    애플리케이션 최초 구동 시 1회 호출 권장.
+    """
     Base.metadata.create_all(bind=engine)
 
 
@@ -175,8 +199,10 @@ def create_tables():
 # 각 테이블에서 데이터를 DataFrame으로 반환하는 함수들
 # 이 함수들은 데이터베이스 세션을 열고, 쿼리를 실행한 후 DataFrame으로 변환하여 반환합니다.
 def get_users() -> pd.DataFrame:
-    """
-    users 테이블에서 모든 데이터를 DataFrame으로 반환합니다.
+    """users 테이블의 모든 레코드를 DataFrame으로 반환합니다.
+
+    Returns:
+        pd.DataFrame: users 테이블 전체 데이터.
     """
     db = get_db_session()
     try:
@@ -188,8 +214,10 @@ def get_users() -> pd.DataFrame:
 
 
 def get_stock_names() -> List[str]:
-    """
-    stock_info 테이블에서 모든 주식 이름을 반환합니다.
+    """stock_info 테이블의 모든 주식 이름 리스트를 반환합니다.
+
+    Returns:
+        List[str]: 주식명 리스트.
     """
     db = get_db_session()
     try:
@@ -201,8 +229,10 @@ def get_stock_names() -> List[str]:
 
 
 def get_stock_info() -> pd.DataFrame:
-    """
-    stock_info 테이블에서 모든 데이터를 DataFrame으로 반환합니다.
+    """stock_info 테이블의 모든 레코드를 DataFrame으로 반환합니다.
+
+    Returns:
+        pd.DataFrame: stock_info 테이블 전체 데이터.
     """
     db = get_db_session()
     try:
@@ -214,8 +244,10 @@ def get_stock_info() -> pd.DataFrame:
 
 
 def get_search_queries() -> pd.DataFrame:
-    """
-    search_queries 테이블에서 모든 데이터를 DataFrame으로 반환합니다.
+    """search_queries 테이블의 모든 레코드를 DataFrame으로 반환합니다.
+
+    Returns:
+        pd.DataFrame: search_queries 테이블 전체 데이터.
     """
     db = get_db_session()
     try:
@@ -227,9 +259,12 @@ def get_search_queries() -> pd.DataFrame:
 
 
 def get_contents() -> pd.DataFrame:
-    """
-    contents 테이블에서 모든 데이터를 DataFrame으로 반환합니다.
-    SearchQuery 테이블과 조인하여 search_query 텍스트를 포함합니다.
+    """contents 테이블의 모든 레코드를 DataFrame으로 반환합니다.
+
+    SearchQuery 테이블과 outer join하여 search_query 텍스트도 포함합니다.
+
+    Returns:
+        pd.DataFrame: contents + search_query_text 데이터.
     """
     db = get_db_session()
     try:
@@ -266,8 +301,10 @@ def get_contents() -> pd.DataFrame:
 
 
 def get_recommendations() -> pd.DataFrame:
-    """
-    recommendations 테이블에서 모든 데이터를 DataFrame으로 반환합니다.
+    """recommendations 테이블의 모든 레코드를 DataFrame으로 반환합니다.
+
+    Returns:
+        pd.DataFrame: recommendations 테이블 전체 데이터.
     """
     db = get_db_session()
     try:
@@ -279,8 +316,10 @@ def get_recommendations() -> pd.DataFrame:
 
 
 def get_recommendation_contents() -> pd.DataFrame:
-    """
-    recommendation_contents 테이블에서 모든 데이터를 DataFrame으로 반환합니다.
+    """recommendation_contents 테이블의 모든 레코드를 DataFrame으로 반환합니다.
+
+    Returns:
+        pd.DataFrame: recommendation_contents 테이블 전체 데이터.
     """
     db = get_db_session()
     try:
@@ -292,8 +331,10 @@ def get_recommendation_contents() -> pd.DataFrame:
 
 
 def get_user_logs() -> pd.DataFrame:
-    """
-    user_logs 테이블에서 모든 데이터를 DataFrame으로 반환합니다.
+    """user_logs 테이블의 모든 레코드를 DataFrame으로 반환합니다.
+
+    Returns:
+        pd.DataFrame: user_logs 테이블 전체 데이터.
     """
     db = get_db_session()
     try:
@@ -305,8 +346,10 @@ def get_user_logs() -> pd.DataFrame:
 
 
 def get_stock_logs() -> pd.DataFrame:
-    """
-    stock_logs 테이블에서 모든 데이터를 DataFrame으로 반환합니다.
+    """stock_logs 테이블의 모든 레코드를 DataFrame으로 반환합니다.
+
+    Returns:
+        pd.DataFrame: stock_logs 테이블 전체 데이터.
     """
     db = get_db_session()
     try:

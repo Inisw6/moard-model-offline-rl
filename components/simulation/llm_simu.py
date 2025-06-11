@@ -10,7 +10,16 @@ from components.simulation.personas import PersonaConfig, create_persona_from_us
 
 @dataclass
 class ContentInfo:
-    """콘텐츠 정보를 위한 데이터 클래스"""
+    """콘텐츠 정보를 위한 데이터 클래스.
+
+    Attributes:
+        index (int): 콘텐츠의 순서 인덱스.
+        content_id (str): 콘텐츠 고유 식별자.
+        type (str): 콘텐츠 타입.
+        title (str): 콘텐츠 제목.
+        url (str): 콘텐츠 URL.
+        description (str): 콘텐츠 설명 (요약).
+    """
 
     index: int
     content_id: str
@@ -21,10 +30,18 @@ class ContentInfo:
 
 
 class LLMUserSimulator:
-    """
-    Ollama를 활용한 사용자 시뮬레이터.
-    페르소나 DB에서 가져온 MBTI와 투자 레벨로 PersonaConfig를 생성하여
-    콘텐츠 추천에 대한 반응을 시뮬레이션합니다.
+    """Ollama LLM을 활용한 사용자 반응 시뮬레이션 클래스.
+
+    페르소나 정보와 추천 콘텐츠를 기반으로 LLM에게 사용자 반응 예측을 요청하고,
+    JSON 포맷의 응답을 받아옵니다.
+
+    Attributes:
+        ollama_url (str): Ollama 서버 URL.
+        model (str): 사용할 LLM 모델 이름.
+        debug (bool): 디버그 로그 출력 여부.
+        _connection_checked (bool): Ollama 서버 연결 테스트 여부 플래그.
+        _is_available (bool): Ollama 서버 사용 가능 여부.
+        _api_config (dict): LLM API 파라미터 세팅.
     """
 
     # 콘텐츠 타입별 기본 체류시간 범위 (초)
@@ -41,13 +58,12 @@ class LLMUserSimulator:
         model: str = "llama3.2:3b",
         debug: bool = False,
     ) -> None:
-        """
-        Ollama LLM API 클라이언트를 초기화합니다.
+        """Ollama LLM API 시뮬레이터 초기화.
 
         Args:
-            ollama_url (str): Ollama 서버의 베이스 URL. 기본값은 "http://localhost:11434".
-            model (str): 사용할 LLM 모델 이름. 예: "llama3.2:2b".
-            debug (bool): 디버그 로그 출력 여부. True일 경우 로그가 출력됩니다.
+            ollama_url (str): Ollama 서버의 베이스 URL.
+            model (str): 사용할 LLM 모델 이름.
+            debug (bool): 디버그 로그 출력 여부.
         """
         self.ollama_url = ollama_url.rstrip("/")
         self.model = model
@@ -65,11 +81,10 @@ class LLMUserSimulator:
 
     @property
     def is_available(self) -> bool:
-        """
-        Ollama 서버가 현재 사용 가능한지 확인합니다.
+        """Ollama 서버의 현재 사용 가능 여부를 반환합니다.
 
         Returns:
-            bool: 서버 연결 가능 여부. 최초 호출 시 한 번만 실제 연결을 테스트하고 캐시합니다.
+            bool: 서버 연결 및 모델 존재 여부.
         """
         if not self._connection_checked:
             self._is_available = self._test_ollama_connection()
@@ -78,14 +93,10 @@ class LLMUserSimulator:
 
     @lru_cache(maxsize=1)
     def _test_ollama_connection(self) -> bool:
-        """
-        Ollama 서버에 연결 가능 여부를 테스트합니다.
-
-        서버 상태 확인을 위해 `/api/tags` 엔드포인트에 GET 요청을 보냅니다.
-        요청이 성공하고 지정된 모델이 서버에 존재하면 True를 반환합니다.
+        """Ollama 서버 및 모델 연결 가능 여부를 테스트합니다.
 
         Returns:
-            bool: 서버에 성공적으로 연결되었고 모델이 존재하면 True, 아니면 False
+            bool: 서버에 연결되고, 모델이 존재하면 True, 아니면 False.
         """
         try:
             response = requests.get(f"{self.ollama_url}/api/tags", timeout=5)
@@ -119,18 +130,17 @@ class LLMUserSimulator:
         recommended_contents: List[Dict],
         current_context: Optional[Dict] = None,
     ) -> str:
-        """
-        페르소나 정보를 기반으로 사용자 반응 시뮬레이션.
+        """페르소나 정보를 기반으로 사용자 반응을 LLM으로 시뮬레이션합니다.
 
         Args:
-            persona_id: 페르소나 ID
-            mbti: MBTI 유형
-            investment_level: 투자 레벨 (1=초보, 2=중급, 3=고급)
-            recommended_contents: 추천된 콘텐츠 리스트
-            current_context: 현재 컨텍스트 정보 (옵션)
+            persona_id (int): 페르소나 ID.
+            mbti (str): MBTI 유형.
+            investment_level (int): 투자 레벨 (1=초보, 2=중급, 3=고급).
+            recommended_contents (List[Dict]): 추천된 콘텐츠 리스트.
+            current_context (Optional[Dict]): 추가 컨텍스트 정보.
 
         Returns:
-            str: LLM 원본 응답 텍스트
+            str: LLM 원본 응답 텍스트(JSON).
         """
         # 페르소나 생성
         persona = create_persona_from_user_data(
@@ -150,18 +160,14 @@ class LLMUserSimulator:
     def _ollama_based_simulation(
         self, persona: PersonaConfig, recommended_contents: List[Dict]
     ) -> str:
-        """
-        Ollama를 활용한 사용자 반응 시뮬레이션을 수행합니다.
-
-        주어진 페르소나와 추천 콘텐츠 리스트를 기반으로 LLM에게 사용자 응답을 생성하도록 요청합니다.
-        시뮬레이션 결과로 원본 텍스트(JSON 포맷 예상)를 반환합니다.
+        """Ollama를 활용해 실제 LLM 사용자 반응 시뮬레이션을 수행합니다.
 
         Args:
             persona (PersonaConfig): 사용자 페르소나 정보.
             recommended_contents (List[Dict]): 추천된 콘텐츠 리스트.
 
         Returns:
-            str: LLM으로부터 받은 원본 응답 텍스트.
+            str: LLM으로부터 받은 원본 응답 텍스트(JSON).
         """
 
         # 콘텐츠 정보 준비
@@ -181,19 +187,14 @@ class LLMUserSimulator:
     def _prepare_content_info(
         self, recommended_contents: List[Dict]
     ) -> Tuple[List[ContentInfo], List[str]]:
-        """
-        추천 콘텐츠 리스트로부터 콘텐츠 정보와 ID 목록을 생성합니다.
-
-        각 콘텐츠 항목에서 필요한 정보를 추출하여 `ContentInfo` 객체를 생성하고,
-        동시에 콘텐츠 ID 리스트를 수집합니다. 콘텐츠 정보는 안전한 기본값으로 보완됩니다.
+        """추천 콘텐츠 리스트로부터 ContentInfo 객체와 ID 리스트를 생성합니다.
 
         Args:
-            recommended_contents (List[Dict]): 추천된 콘텐츠들의 딕셔너리 리스트.
+            recommended_contents (List[Dict]): 추천 콘텐츠 딕셔너리 리스트.
 
         Returns:
             Tuple[List[ContentInfo], List[str]]:
-                - 콘텐츠 정보 리스트 (`ContentInfo` 객체들).
-                - 콘텐츠 ID 리스트 (str 타입).
+                ContentInfo 객체 리스트, 콘텐츠 ID 리스트.
         """
         contents_info = []
         content_ids = []
@@ -222,19 +223,15 @@ class LLMUserSimulator:
         contents_info: List[ContentInfo],
         content_ids: List[str],
     ) -> str:
-        """
-        LLM에게 단 하나의 JSON 배열만 출력하도록 프롬프트를 구성합니다.
-
-        프롬프트는 페르소나 정보 및 콘텐츠 설명을 기반으로 하며, LLM의 출력 결과가
-        아래 조건을 반드시 만족하도록 유도합니다.
+        """LLM에 입력할 프롬프트 문자열을 생성합니다.
 
         Args:
             persona (PersonaConfig): 사용자 페르소나 정보.
-            contents_info (List[ContentInfo]): 콘텐츠 설명 목록.
-            content_ids (List[str]): 추천된 콘텐츠 ID 목록.
+            contents_info (List[ContentInfo]): 콘텐츠 정보 객체 리스트.
+            content_ids (List[str]): 추천 콘텐츠 ID 리스트.
 
         Returns:
-            str: LLM에게 전달할 프롬프트 문자열.
+            str: LLM 프롬프트 문자열.
         """
 
         # 1) 콘텐츠 설명 줄

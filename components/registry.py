@@ -18,6 +18,14 @@ def register(key: str) -> Callable[[Type[Any]], Type[Any]]:
     """
 
     def decorator(cls: Type[Any]) -> Type[Any]:
+        """클래스를 레지스트리에 등록하고 반환합니다.
+
+        Args:
+            cls (Type[Any]): 등록할 클래스.
+
+        Returns:
+            Type[Any]: 등록된 클래스.
+        """
         _REGISTRY[key] = cls
         return cls
 

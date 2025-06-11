@@ -166,7 +166,7 @@ class ExperimentRunner:
                 )
 
                 state, _ = env.reset(options={"query": query})
-                done: bool = False
+                done = False
                 total_reward = 0.0
                 rec_count = 0
                 emb_cache: Dict[Any, Any] = {}
@@ -180,7 +180,7 @@ class ExperimentRunner:
                             if cid not in emb_cache:
                                 emb_cache[cid] = embedder.embed_content(cand)
 
-                    # ε–greedy 탐험/활용 분기
+                    # ε-greedy를 통한 슬레이트 선택
                     if random.random() < agent.epsilon:
                         # Exploration: 무작위 슬레이트 생성
                         enforce_list: List[Tuple[str, int]] = []
@@ -198,7 +198,7 @@ class ExperimentRunner:
                             q_values, top_k=max_recs
                         )
 
-                    # 콘텐츠 당 한 번에 step 실행
+                    # step 실행
                     step_result = env.step(enforce_list)
                     if not (
                         isinstance(step_result, (tuple, list)) and len(step_result) == 5
@@ -251,10 +251,12 @@ class ExperimentRunner:
                             next_cembs,
                             done,
                         )
-                        # todo: 학습 위치 고려중
-                        # agent.learn()
+                    # 에이전트 학습 -> 위치에 따라 다름, 지금은 6개 모두 추천 작업 진행 후 학습
                     agent.learn()
                     state = next_state
+                    # ε 감소: 한 env.step 당 한 번만 적용
+                    agent.decay_epsilon()
+
                 logging.info(
                     f"--- Episode {ep} End. Agent Epsilon: {getattr(agent, 'epsilon', float('nan')):.3f} ---"
                 )

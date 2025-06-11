@@ -150,12 +150,14 @@ class DQNAgent(BaseAgent):
         loss.backward()
         self.optimizer.step()
 
-        self.epsilon = max(self.epsilon * self.epsilon_dec, self.epsilon_min)
         if self.step_count % self.update_freq == 0:
             logging.info(
                 f"Step {self.step_count}: Loss = {loss.item()}, Epsilon = {self.epsilon:.4f}"
             )
             self.target_q_net.load_state_dict(self.q_net.state_dict())
+
+    def decay_epsilon(self):
+        self.epsilon = max(self.epsilon * self.epsilon_dec, self.epsilon_min)
 
     def save(self, path: str) -> None:
         """Q 네트워크 파라미터를 파일로 저장."""

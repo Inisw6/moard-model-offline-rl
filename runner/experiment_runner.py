@@ -162,7 +162,7 @@ class ExperimentRunner:
             try:
                 # 각 에피소드 시작 시 로그 출력
                 logging.info(
-                    f"\n--- Episode {ep+1}/{total_eps} (seed={seed}, query={query}) ---"
+                    f"\n--- Episode {ep}/{total_eps} (seed={seed}, query={query}) ---"
                 )
 
                 state, _ = env.reset(options={"query": query})
@@ -220,6 +220,16 @@ class ExperimentRunner:
                         f"    Clicks: {info.get('total_clicks', 0)}/{len(enforce_list)}"
                     )
 
+                    # 계산 로직 한번만 실행
+                    next_cand_dict: Dict[str, List[Any]] = env.get_candidates()
+                    next_cembs: Dict[str, List[Any]] = {
+                        t: [
+                            emb_cache.get(c.get("id"), embedder.embed_content(c))
+                            for c in cs
+                        ]
+                        for t, cs in next_cand_dict.items()
+                    }
+
                     # RL 학습 데이터 저장 및 학습
                     for ctype, idx in enforce_list:
                         cands = cand_dict.get(ctype, [])
@@ -229,15 +239,6 @@ class ExperimentRunner:
                         selected = cands[idx]
                         cid = selected.get("id")
                         selected_emb = emb_cache[cid]
-
-                        next_cand_dict: Dict[str, List[Any]] = env.get_candidates()
-                        next_cembs: Dict[str, List[Any]] = {
-                            t: [
-                                emb_cache.get(c.get("id"), embedder.embed_content(c))
-                                for c in cs
-                            ]
-                            for t, cs in next_cand_dict.items()
-                        }
 
                         individual_reward = info.get("individual_rewards", {}).get(
                             int(selected.get("id")), 0.0
@@ -251,8 +252,10 @@ class ExperimentRunner:
                             next_cembs,
                             done,
                         )
-                        agent.learn()
-                        state = next_state
+                        # todo: 학습 위치 고려중
+                        # agent.learn()
+                    agent.learn()
+                    state = next_state
                 logging.info(
                     f"--- Episode {ep} End. Agent Epsilon: {getattr(agent, 'epsilon', float('nan')):.3f} ---"
                 )

@@ -125,7 +125,7 @@ class DQNAgent(BaseAgent):
             (user_state, content_emb), reward, (next_state, next_cands_embs), done
         )
 
-    def learn(self) -> None:
+    def learn(self) -> float:
         """리플레이 버퍼에서 샘플을 추출해 Q 네트워크를 업데이트합니다."""
         if len(self.buffer) < self.batch_size:
             return
@@ -179,6 +179,8 @@ class DQNAgent(BaseAgent):
                 f"Step {self.step_count}: Loss = {loss.item()}, Epsilon = {self.epsilon:.4f}"
             )
             self.target_q_net.load_state_dict(self.q_net.state_dict())
+        print(loss)
+        return loss.item()
 
     def decay_epsilon(self):
         """탐험률(epsilon)을 감소시킵니다."""

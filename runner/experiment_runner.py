@@ -171,6 +171,7 @@ class ExperimentRunner:
                 total_reward = 0.0
                 rec_count = 0
                 emb_cache: Dict[Any, Any] = {}
+                loss = []
 
                 while not done:
                     # 후보 임베딩 캐시
@@ -256,7 +257,7 @@ class ExperimentRunner:
                             done,
                         )
                     # 에이전트 학습 -> 위치에 따라 다름, 지금은 6개 모두 추천 작업 진행 후 학습
-                    agent.learn()
+                    loss.append(agent.learn())
                     state = next_state
                     # ε 감소: 한 env.step 당 한 번만 적용
                     agent.decay_epsilon()
@@ -266,14 +267,16 @@ class ExperimentRunner:
                 )
 
                 # 에피소드 종료 후 Q-value 분산 계산산
+                qvalue_variance = float("nan")
                 if qvalue_list:
                     qvalue_variance = np.var(qvalue_list)
 
                 logging.info(
                     f"--- Q-value Variance (Episode {ep}): {qvalue_variance:.6f}"
                 )
-
+                print('loss', loss)
                 # 기존 메트릭 딕셔너리에 qvalue_variance값 추가가
+                # 평가용 메트릭스 저장
                 episode_metrics.append(
                     {
                         "seed": seed,
@@ -288,6 +291,7 @@ class ExperimentRunner:
                         "epsilon": getattr(agent, "epsilon", float("nan")),
                         "datetime": datetime.now().isoformat(),
                         "qvalue_variance": qvalue_variance,
+                        "loss" : sum(loss)/len(loss) if type(loss[0]) == float else 0
                     }
                 )
 

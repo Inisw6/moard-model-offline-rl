@@ -5,6 +5,7 @@ from typing import Dict, List
 import numpy as np
 import torch
 import torch.nn.functional as F
+import logging
 
 from components.core.base import BaseAgent
 from components.registry import register
@@ -14,6 +15,24 @@ from replay.replay_buffer import ReplayBuffer
 
 @register("dqn")
 class DQNAgent(BaseAgent):
+    """DQN 기반 추천 에이전트.
+
+    Attributes:
+        device (torch.device): 사용할 디바이스(CPU 또는 GPU).
+        q_net (QNetwork): Q 네트워크.
+        target_q_net (QNetwork): 타겟 Q 네트워크.
+        optimizer (torch.optim.Optimizer): 옵티마이저.
+        buffer (ReplayBuffer): 리플레이 버퍼.
+        gamma (float): 할인 계수.
+        batch_size (int): 배치 크기.
+        epsilon (float): 탐험률.
+        epsilon_min (float): 최소 탐험률.
+        epsilon_dec (float): 탐험률 감소 계수.
+        update_freq (int): 타겟 네트워크 업데이트 빈도.
+        step_count (int): 학습 단계 카운터.
+        loss_type (str): 손실 함수 종류.
+    """
+
     def __init__(
         self,
         user_dim: int,
@@ -26,23 +45,24 @@ class DQNAgent(BaseAgent):
         gamma: float,
         update_freq: int,
         capacity: int,
+        loss_type: str = "smooth_l1",
         device: str = "cpu",
     ) -> None:
-        """
-        DQN 기반 추천 에이전트.
+        """DQNAgent 생성자.
 
         Args:
-            user_dim (int): 사용자 상태 임베딩 차원
-            content_dim (int): 콘텐츠 임베딩 차원
-            lr (float): 학습률
-            batch_size (int): 배치 크기
-            eps_start (float): 초기 탐험률
-            eps_min (float): 최소 탐험률
-            eps_decay (float): 탐험률 감소 계수
-            gamma (float): 감가율
-            update_freq (int): 타겟 네트워크 업데이트 주기
-            capacity (int): 리플레이 버퍼 용량
-            device (str): 'cpu' or 'cuda'
+            user_dim (int): 사용자 상태 임베딩 차원.
+            content_dim (int): 콘텐츠 임베딩 차원.
+            lr (float): 학습률.
+            batch_size (int): 배치 크기.
+            eps_start (float): 초기 탐험률.
+            eps_min (float): 최소 탐험률.
+            eps_decay (float): 탐험률 감소 계수.
+            gamma (float): 할인 계수.
+            update_freq (int): 타겟 네트워크 업데이트 주기.
+            capacity (int): 리플레이 버퍼 용량.
+            loss_type (str, optional): 손실 함수 종류 ('mse' 또는 'smooth_l1'). 기본값 'smooth_l1'.
+            device (str, optional): 사용할 디바이스 ('cpu' 또는 'cuda'). 기본값 'cpu'.
         """
         self.device = torch.device("cuda" if torch.cuda.is_available() else device)
         self.q_net = QNetwork(user_dim, content_dim).to(self.device)
@@ -59,21 +79,20 @@ class DQNAgent(BaseAgent):
         self.epsilon_dec = eps_decay
         self.update_freq = update_freq
         self.step_count = 0
+        self.loss_type = loss_type
 
     def select_action(
         self, user_state: List[float], candidate_embs: List[List[float]]
     ) -> int:
-        """
-        액션(=추천 콘텐츠 인덱스) 선택.
+        """현재 상태에서 추천 콘텐츠(액션)를 선택합니다.
 
         Args:
-            user_state (List[float]): 현재 사용자 상태 임베딩 (벡터)
-            candidate_embs (List[List[float]]): 후보 콘텐츠 임베딩 리스트
+            user_state (List[float]): 현재 사용자 상태 임베딩 벡터.
+            candidate_embs (List[List[float]]): 후보 콘텐츠 임베딩 리스트.
 
         Returns:
-            int: 선택한 콘텐츠 인덱스
+            int: 선택한 콘텐츠 인덱스.
         """
-        self.step_count += 1
         if random.random() < self.epsilon:
             return random.randrange(len(candidate_embs))
         us = torch.FloatTensor(user_state).unsqueeze(0).to(self.device)
@@ -92,16 +111,15 @@ class DQNAgent(BaseAgent):
         next_cands_embs: Dict[str, List[List[float]]],
         done: bool,
     ) -> None:
-        """
-        샘플을 리플레이 버퍼에 저장.
+        """경험을 리플레이 버퍼에 저장합니다.
 
         Args:
-            user_state (List[float]): 현재 상태 임베딩
-            content_emb (List[float]): 액션에 해당하는 콘텐츠 임베딩
-            reward (float): 보상
-            next_state (List[float]): 다음 상태 임베딩
-            next_cands_embs (Dict[str, List[List[float]]]): 다음 상태에서의 후보군 임베딩 (타입별)
-            done (bool): 에피소드 종료 여부
+            user_state (List[float]): 현재 상태 임베딩.
+            content_emb (List[float]): 액션에 해당하는 콘텐츠 임베딩.
+            reward (float): 보상.
+            next_state (List[float]): 다음 상태 임베딩.
+            next_cands_embs (Dict[str, List[List[float]]]): 다음 상태에서의 후보군 임베딩 (타입별).
+            done (bool): 에피소드 종료 여부.
         """
         self.buffer.push(
             (user_state, content_emb), reward, (next_state, next_cands_embs), done
@@ -111,6 +129,9 @@ class DQNAgent(BaseAgent):
         """리플레이 버퍼에서 샘플을 추출해 Q 네트워크를 업데이트합니다."""
         if len(self.buffer) < self.batch_size:
             return
+
+        self.step_count += 1
+
         user_states, content_embs, rewards, next_info, dones = self.buffer.sample(
             self.batch_size
         )
@@ -141,21 +162,61 @@ class DQNAgent(BaseAgent):
         max_nq = torch.stack(max_next_q_list).unsqueeze(1)
 
         target = rs + self.gamma * max_nq * (1 - ds)
-        loss = F.mse_loss(q_sa, target)
+
+        if self.loss_type == "mse":
+            loss = F.mse_loss(q_sa, target)
+        elif self.loss_type == "smooth_l1":
+            loss = F.smooth_l1_loss(q_sa, target)
+        else:
+            raise ValueError(f"지원하지 않는 loss_type입니다: {self.loss_type}")
 
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
 
-        self.epsilon = max(self.epsilon * self.epsilon_dec, self.epsilon_min)
         if self.step_count % self.update_freq == 0:
+            logging.info(
+                f"Step {self.step_count}: Loss = {loss.item()}, Epsilon = {self.epsilon:.4f}"
+            )
             self.target_q_net.load_state_dict(self.q_net.state_dict())
 
+    def decay_epsilon(self):
+        """탐험률(epsilon)을 감소시킵니다."""
+        self.epsilon = max(self.epsilon * self.epsilon_dec, self.epsilon_min)
+
     def save(self, path: str) -> None:
-        """Q 네트워크 파라미터를 파일로 저장."""
-        torch.save(self.q_net.state_dict(), path)
+        """에이전트의 상태를 파일로 저장합니다.
+
+        Args:
+            path (str): 체크포인트 파일 경로.
+        """
+        checkpoint = {
+            "q_net_state": self.q_net.state_dict(),
+            "target_net_state": self.target_q_net.state_dict(),
+            "optimizer_state": self.optimizer.state_dict(),
+            "step_count": self.step_count,
+            "epsilon": self.epsilon,
+            "epsilon_min": self.epsilon_min,
+            "epsilon_dec": self.epsilon_dec,
+        }
+        torch.save(checkpoint, path)
+        logging.info(f"[DQNAgent] Checkpoint saved to {path}")
 
     def load(self, path: str) -> None:
-        """Q 네트워크 파라미터를 파일에서 불러오기."""
-        self.q_net.load_state_dict(torch.load(path))
-        self.q_net.eval()
+        """저장된 체크포인트 파일에서 에이전트의 상태를 복원합니다.
+
+        Args:
+            path (str): 체크포인트 파일 경로.
+        """
+        checkpoint = torch.load(path, map_location=self.device)
+        self.q_net.load_state_dict(checkpoint["q_net_state"])
+        self.target_q_net.load_state_dict(checkpoint["target_net_state"])
+        self.optimizer.load_state_dict(checkpoint["optimizer_state"])
+        self.step_count = checkpoint.get("step_count", 0)
+        self.env_step_count = checkpoint.get("env_step_count", 0)
+        self.epsilon = checkpoint.get("epsilon", self.epsilon)
+        self.epsilon_min = checkpoint.get("epsilon_min", self.epsilon_min)
+        self.epsilon_dec = checkpoint.get("epsilon_dec", self.epsilon_dec)
+        self.q_net.train()
+        self.target_q_net.eval()
+        logging.info(f"[DQNAgent] Checkpoint loaded from {path}")

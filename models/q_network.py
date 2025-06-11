@@ -3,23 +3,29 @@ import torch.nn as nn
 
 
 class QNetwork(nn.Module):
-    """
-    Q-Value를 예측하는 MLP 네트워크.
+    """Q-Value를 예측하는 MLP 네트워크.
 
     Args:
         user_dim (int): 사용자 임베딩 벡터 차원.
         content_dim (int): 콘텐츠 임베딩 벡터 차원.
-        hidden_dim (int, optional): 은닉층 크기. 기본값=128.
+        hidden_dim (int, optional): 은닉층 크기. 기본값은 128.
 
-    입력:
-        user:   [batch_size, user_dim] (Tensor)
-        content:[batch_size, content_dim] (Tensor)
+    Input:
+        user (torch.Tensor): [batch_size, user_dim]
+        content (torch.Tensor): [batch_size, content_dim]
 
-    출력:
-        Q-value: [batch_size, 1] (Tensor)
+    Output:
+        torch.Tensor: [batch_size, 1] Q-value
     """
 
     def __init__(self, user_dim: int, content_dim: int, hidden_dim: int = 128) -> None:
+        """QNetwork 클래스 생성자.
+
+        Args:
+            user_dim (int): 사용자 임베딩 벡터 차원.
+            content_dim (int): 콘텐츠 임베딩 벡터 차원.
+            hidden_dim (int, optional): 은닉층 크기. 기본값은 128.
+        """
         super().__init__()
         self.user_dim = user_dim
         self.content_dim = content_dim
@@ -34,8 +40,7 @@ class QNetwork(nn.Module):
         )
 
     def forward(self, user: torch.Tensor, content: torch.Tensor) -> torch.Tensor:
-        """
-        사용자/콘텐츠 벡터를 받아 Q-value를 예측합니다.
+        """사용자/콘텐츠 벡터를 받아 Q-value를 예측합니다.
 
         Args:
             user (torch.Tensor): [batch_size, user_dim]
@@ -43,6 +48,9 @@ class QNetwork(nn.Module):
 
         Returns:
             torch.Tensor: [batch_size, 1] Q-value
+
+        Raises:
+            ValueError: 배치 사이즈 또는 차원이 일치하지 않을 때.
         """
         if user.shape[0] != content.shape[0]:
             raise ValueError(

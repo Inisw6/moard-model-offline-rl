@@ -2,7 +2,7 @@ env:
   type: rec_env
   params:
     cold_start: 10
-    max_steps: 30
+    max_steps: 5
     top_k: 6
 
 response_simulator:
@@ -30,7 +30,9 @@ agent:
     eps_min: 0.05
     eps_decay: 0.995
     gamma: 0.99
-    update_freq: 100
+    update_freq: 3
+    # 'mse' 또는 'smooth_l1' 중 선택
+    loss_type: "smooth_l1"  
 
 embedder:
   type: simple_concat
@@ -54,8 +56,9 @@ reward_fn:
   params: {}
 
 experiment:
-  total_episodes: 20
+  total_episodes: 10
   max_recommendations: 6
+  max_stocks: 1
   seeds: [0]
   result_log_path: "./data/experiment_results.log"
 

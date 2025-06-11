@@ -5,21 +5,20 @@ from typing import Any, Dict, List, Optional
 from components.core.base import BaseResponseSimulator
 from components.simulation.llm_response_handler import LLMResponseHandler
 from components.simulation.llm_simu import LLMUserSimulator
-from components.simulation.persona_db import get_persona_db
+from components.database.persona_db import get_persona_db
 
 
 class RandomResponseSimulator(BaseResponseSimulator):
-    """룰 기반(랜덤)으로 사용자 반응을 시뮬레이션하는 클래스입니다."""
+    """룰 기반(랜덤) 사용자 반응 시뮬레이터."""
 
     def simulate_responses(
         self, selected_contents: List[Dict], context: Dict[str, Any] = None
     ) -> List[Dict[str, Any]]:
-        """
-        각 콘텐츠에 대해 30% 확률로 클릭 및 랜덤 체류 시간을 시뮬레이션합니다.
+        """각 콘텐츠에 대해 30% 확률로 클릭 및 랜덤 체류 시간을 시뮬레이션합니다.
 
         Args:
             selected_contents (List[Dict]): 추천된 콘텐츠 리스트.
-            context (Dict[str, Any]): 사용되지 않습니다.
+            context (Dict[str, Any], optional): 사용되지 않음.
 
         Returns:
             List[Dict[str, Any]]: 시뮬레이션된 사용자 반응 리스트.
@@ -39,19 +38,20 @@ class RandomResponseSimulator(BaseResponseSimulator):
 
 
 class LLMResponseSimulator(BaseResponseSimulator):
-    """LLM을 사용하여 사용자 반응을 시뮬레이션하는 클래스입니다."""
+    """LLM 기반 사용자 반응 시뮬레이터."""
 
     def __init__(
         self,
         llm_simulator: LLMUserSimulator,
         persona_id: Optional[int] = None,
         debug: bool = False,
-    ):
-        """
+    ) -> None:
+        """LLMResponseSimulator 생성자.
+
         Args:
-            llm_simulator (LLMUserSimulator): LLM 기반 사용자 시뮬레이터.
-            persona_id (Optional[int]): 페르소나 ID. None이면 랜덤 선택.
-            debug (bool): 디버그 모드 활성화 여부.
+            llm_simulator (LLMUserSimulator): LLM 기반 사용자 시뮬레이터 인스턴스.
+            persona_id (Optional[int], optional): 페르소나 ID. None이면 랜덤 선택.
+            debug (bool, optional): 디버그 모드 활성화 여부.
         """
         self.llm_simulator = llm_simulator
         self.response_handler = LLMResponseHandler(debug=debug)
@@ -59,7 +59,15 @@ class LLMResponseSimulator(BaseResponseSimulator):
         self._init_persona(persona_id, debug)
 
     def _init_persona(self, persona_id: Optional[int], debug: bool) -> None:
-        """페르소나를 로드하고 속성에 저장합니다."""
+        """페르소나 정보를 초기화합니다.
+
+        Args:
+            persona_id (Optional[int]): 사용할 페르소나 ID.
+            debug (bool): 디버그 로그 활성화 여부.
+
+        Raises:
+            ValueError: 지정한 persona_id가 DB에 없을 경우.
+        """
         persona_db = get_persona_db()
 
         if persona_id is None:
@@ -90,13 +98,13 @@ class LLMResponseSimulator(BaseResponseSimulator):
     def simulate_responses(
         self, selected_contents: List[Dict], context: Dict[str, Any]
     ) -> List[Dict[str, Any]]:
-        """
-        LLM을 사용하여 페르소나 기반으로 사용자 반응을 시뮬레이션합니다.
-        오류 발생 시 랜덤 시뮬레이터로 대체됩니다.
+        """LLM을 통해 페르소나 기반 사용자 반응을 시뮬레이션합니다.
+
+        오류 발생 시, 랜덤 시뮬레이터로 폴백합니다.
 
         Args:
             selected_contents (List[Dict]): 추천된 콘텐츠 리스트.
-            context (Dict[str, Any]): 시뮬레이션 컨텍스트. 다음 키를 포함해야 합니다:
+            context (Dict[str, Any]): 시뮬레이션 컨텍스트.
                 - step_count (int)
                 - session_logs (List[Dict])
 
@@ -126,4 +134,4 @@ class LLMResponseSimulator(BaseResponseSimulator):
             logging.error(
                 "LLM simulation error: %s. Falling back to random simulation.", e
             )
-            return self.fallback_simulator.simulate_responses(selected_contents, {}) 
+            return self.fallback_simulator.simulate_responses(selected_contents, {})

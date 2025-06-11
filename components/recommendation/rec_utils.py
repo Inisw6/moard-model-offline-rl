@@ -6,23 +6,23 @@ import numpy as np
 def enforce_type_constraint(
     q_values: Dict[str, List[float]], top_k: int = 6
 ) -> List[Tuple[str, int]]:
-    """
-    타입별 Q값 리스트가 담긴 q_values를 받아,
-    상위 Q 순으로 top_k 개를 뽑되, 누락된 타입이 있으면 해당 타입 중
-    가장 높은 Q값 아이템을 끼워넣어 최종 (ctype, idx) 리스트를 반환합니다.
+    """타입별 Q값 리스트에서 top_k개를 뽑으면서 모든 타입을 최소 1개 이상 포함시켜 반환합니다.
+
+    Q값이 높은 순서로 top_k개를 선택하되, 만약 일부 타입이 아예 누락된다면 해당 타입 내 최상위 Q값 아이템을 강제로 포함시킵니다.
+    (선정된 리스트에서 최하위 Q값 항목과 교체)
 
     Args:
-        q_values: {
-            'youtube': [q0, q1, q2, ...],
-            'blog':    [q0, q1, q2, ...],
-            'news':    [q0, q1, q2, ...],
-            ...
-        }
-        top_k: 최종 추천 개수 (예: 6)
+        q_values (Dict[str, List[float]]):
+            타입별 Q값 리스트. 예시: {
+                'youtube': [q0, q1, ...],
+                'blog':    [q0, q1, ...],
+                'news':    [q0, q1, ...]
+            }
+        top_k (int): 최종 반환할 (타입, 인덱스) 쌍의 개수.
 
     Returns:
-        List of (ctype, idx) 튜플, 길이 == top_k.
-        각 튜플은 “해당 타입 리스트 내에서 인덱스 idx”를 가리킵니다.
+        List[Tuple[str, int]]: [(ctype, idx), ...] 형태의 top_k 길이 리스트.
+            각 튜플은 (콘텐츠 타입, 해당 타입 내 인덱스)를 의미합니다.
     """
     # 1) 모든 (ctype, idx, q) 튜플을 평탄화
     all_items: List[Tuple[str, int, float]] = []
@@ -73,29 +73,32 @@ def compute_all_q_values(
     agent: Any,
     emb_cache: Optional[Dict[Any, Any]] = None,
 ) -> Dict[str, List[float]]:
-    """
-    현재 상태(state)와 후보 딕셔너리(cand_dict)를 받아,
-    각 타입별 후보들의 Q값 리스트를 반환합니다.
+    """주어진 상태(state)와 후보 콘텐츠 딕셔너리(cand_dict)로 타입별 Q값 리스트를 계산합니다.
+
+    각 타입별 후보 콘텐츠에 대해 임베딩을 구해 Q-network로 Q값을 추론하며,
+    emb_cache가 주어지면 임베딩 캐싱을 활용합니다.
 
     Args:
-        state: 현재 사용자 임베딩 벡터 (np.ndarray 등)
-        cand_dict: {
-            'youtube': [content0, content1, ...],
-            'blog':    [content0, content1, ...],
-            'news':    [content0, content1, ...],
-            ...
-        }
-        embedder: 콘텐츠 임베딩을 생성하는 객체 (embedder.embed_content 메서드 사용)
-        agent: Q-network가 포함된 에이전트 (agent.q_net 호출)
-        emb_cache: (Optional) 콘텐츠 임베딩 캐시 (content_id → embedding)
+        state (Any): 현재 상태 벡터 (np.ndarray 등).
+        cand_dict (Dict[str, List[Dict[str, Any]]]):
+            타입별 후보 콘텐츠 딕셔너리.
+            예시: {
+                'youtube': [content0, content1, ...],
+                'blog':    [content0, content1, ...],
+                ...
+            }
+        embedder (Any): embed_content 메서드를 가진 임베딩 객체.
+        agent (Any): q_net (Q-network)을 포함하고, device 속성을 가진 객체.
+        emb_cache (Optional[Dict[Any, Any]]):
+            콘텐츠 id → 임베딩을 저장하는 캐시(선택).
 
     Returns:
-        {
-            'youtube': [q0, q1, ...],
-            'blog':    [q0, q1, ...],
-            'news':    [q0, q1, ...],
-            ...
-        }
+        Dict[str, List[float]]: 타입별 Q값 리스트.
+            예시: {
+                'youtube': [q0, q1, ...],
+                'blog':    [q0, q1, ...],
+                ...
+            }
     """
     import torch
 
@@ -104,7 +107,7 @@ def compute_all_q_values(
         content_embs = []
         for c in contents:
             # 각 콘텐츠마다 캐시 우선 조회
-            cid = getattr(c, "id", id(c))
+            cid = c.get("id")
             if emb_cache is not None and cid in emb_cache:
                 content_emb = emb_cache[cid]
             else:

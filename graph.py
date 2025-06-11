@@ -42,10 +42,10 @@ ax.grid(True)
 # 4) seed마다, 추천 수 (Recommendations)
 ax = axes[1, 1]
 for seed, grp in df.groupby("seed"):
-    ax.plot(grp["episode"], grp["recommendations"], label=f"seed {seed}")
-ax.set_title("Recommendations")
+    ax.plot(grp["episode"], grp["qvalue_variance"], label=f"seed {seed}")
+ax.set_title("Q-value variance")
 ax.set_xlabel("Episode")
-ax.set_ylabel("Count")
+ax.set_ylabel("Variance")
 ax.legend()
 ax.grid(True)
 

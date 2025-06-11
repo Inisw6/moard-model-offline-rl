@@ -1,54 +1,62 @@
-class RecContextManager:
-    """
-    추천 시뮬레이션 컨텍스트 관리 클래스.
+from typing import Dict
 
-    cold start 에피소드 동안은 무조건 균등 quota를,
-    이후에는 user preference 기반 quota를 사용하도록 제어.
+
+class RecContextManager:
+    """추천 시뮬레이션 컨텍스트 관리 클래스.
+
+    Cold start 에피소드 동안은 무조건 균등 quota를,
+    이후에는 user preference 기반 quota를 사용하도록 제어합니다.
+
+    Attributes:
+        total_steps (int): 현재까지의 전체 step 카운트.
+        cold_start (int): cold start 구간에서 균등 quota를 쓸 에피소드 수.
     """
 
     def __init__(self, cold_start_episodes: int = 10) -> None:
-        """
+        """RecContextManager 객체를 초기화합니다.
+
         Args:
-            cold_start_episodes (int): cold start 구간에서 고정 quota를 쓸 에피소드 수
+            cold_start_episodes (int): cold start 구간에서 균등 quota를 쓸 에피소드 수.
         """
         self.total_steps = 0
         self.cold_start = cold_start_episodes
 
     def reset(self) -> None:
-        """컨텍스트를 리셋(에피소드 시작 시 호출)"""
+        """컨텍스트를 리셋(에피소드 시작 시 호출)."""
         self.total_steps = 0
 
     def use_fixed_quota(self) -> bool:
-        """
-        cold start 구간인지 판별.
+        """Cold start 구간인지 판별합니다.
 
         Returns:
-            bool: cold start quota 사용 여부
+            bool: cold start quota 사용 여부.
         """
         return self.total_steps < self.cold_start
 
     def step(self) -> None:
-        """step 카운터 증가(에피소드 내 매 step마다 호출)"""
+        """step 카운터를 1 증가시킵니다(에피소드 내 매 step마다 호출)."""
         self.total_steps += 1
 
 
 def get_recommendation_quota(
-    user_pref: dict[str, float],
+    user_pref: Dict[str, float],
     context: RecContextManager,
     max_total: int = 6,
     min_per_type: int = 1,
-) -> dict[str, int]:
-    """
-    추천 quota(콘텐츠 타입별 추천 개수) 계산 함수.
+) -> Dict[str, int]:
+    """추천 quota(콘텐츠 타입별 추천 개수)를 계산합니다.
 
     Args:
-        user_pref (dict[str, float]): 각 콘텐츠 타입별 선호도 (0~1, 합계=1이 아님)
-        context (RecContextManager): 추천 컨텍스트(콜드스타트 등)
-        max_total (int): 한 스텝에서 추천할 총 콘텐츠 수
-        min_per_type (int): 각 타입별 최소 추천 개수
+        user_pref (dict[str, float]): 각 콘텐츠 타입별 선호도(0~1, 합계=1이 아님).
+        context (RecContextManager): 추천 컨텍스트(콜드스타트 여부 등).
+        max_total (int): 한 스텝에서 추천할 총 콘텐츠 수.
+        min_per_type (int): 각 타입별 최소 추천 개수.
 
     Returns:
-        dict[str, int]: {콘텐츠 타입: quota(추천 개수)}
+        dict[str, int]: {콘텐츠 타입: quota(추천 개수)}.
+
+    Raises:
+        ValueError: 타입이 없거나 max_total이 타입수*min_per_type보다 작은 경우.
     """
     types = list(user_pref.keys())
     n_types = len(types)

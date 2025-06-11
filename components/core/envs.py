@@ -16,10 +16,21 @@ from components.simulation.simulators import BaseResponseSimulator
 
 @register("rec_env")
 class RecEnv(gym.Env, BaseEnv):
-    """
-    추천 환경(RecEnv).
+    """추천 환경(RecEnv).
+
     Gymnasium과 사용자 정의 BaseEnv를 함께 상속하여,
     RL 기반 추천 시스템 시뮬레이션을 위한 환경을 제공합니다.
+
+    Attributes:
+        context: 추천 컨텍스트 관리자.
+        cold_start (int): 콜드스타트 상태 사용 여부.
+        max_steps (int): 에피소드 당 최대 추천 횟수.
+        top_k (int): 한 스텝에서 추천할 콘텐츠 개수.
+        embedder: 사용자/콘텐츠 임베딩 객체.
+        candidate_generator: 추천 후보군 생성 객체.
+        reward_fn: 보상 함수 객체.
+        response_simulator (BaseResponseSimulator): 사용자 반응 시뮬레이터.
+        step_count (int): 에피소드 내 현재 스텝 카운트.
     """
 
     def __init__(
@@ -35,8 +46,7 @@ class RecEnv(gym.Env, BaseEnv):
         user_id: Optional[int] = None,
         debug: bool = False,
     ) -> None:
-        """
-        환경을 초기화합니다.
+        """RecEnv 환경을 초기화합니다.
 
         Args:
             cold_start (int): 콜드스타트 상태 사용 여부.
@@ -47,8 +57,8 @@ class RecEnv(gym.Env, BaseEnv):
             reward_fn: 보상 함수 객체.
             context: 추천 컨텍스트 관리자.
             response_simulator (BaseResponseSimulator): 사용자 반응 시뮬레이터.
-            user_id (Optional[int]): 환경에 할당할 사용자 ID. None이면 임의 선택.
-            debug (bool): 디버깅 모드 활성화 여부.
+            user_id (Optional[int], optional): 환경에 할당할 사용자 ID. None이면 임의 선택.
+            debug (bool, optional): 디버깅 모드 활성화 여부.
         """
         super().__init__()
         # 인자 없으면 예외 발생
@@ -80,30 +90,16 @@ class RecEnv(gym.Env, BaseEnv):
         self._init_spaces()
 
     def _load_dataframes(self) -> None:
-        """
-        DB에서 사용자 및 콘텐츠 로그용 DataFrame을 불러와 인스턴스 변수에 저장합니다.
-
-        이 메서드는 반환값이 없으며, 아래 세 가지 DataFrame을 설정합니다:
-          - self.all_users_df
-          - self.all_user_logs_df
-          - self.all_contents_df
-        """
+        """DB에서 사용자 및 콘텐츠, 로그 DataFrame을 불러와 인스턴스 변수로 저장합니다."""
         self.all_users_df = get_users()
         self.all_user_logs_df = get_user_logs()
         self.all_contents_df = get_contents()
 
     def _init_user(self, user_id: Optional[int]) -> None:
-        """
-        현재 에피소드에 사용할 사용자 ID와 사용자 정보를 초기화합니다.
+        """에피소드에 사용할 사용자 ID와 사용자 정보를 초기화합니다.
 
         Args:
-            user_id (Optional[int]): 환경에 할당할 사용자 ID. None일 경우 첫 사용자를 선택하거나 더미 ID(-1)를 사용합니다.
-
-        Side Effects:
-            self.current_user_id: 설정된 사용자 ID
-            self.current_user_info: 해당 ID에 매핑된 사용자 정보(dict)
-            self.current_user_original_logs_df: 빈 DataFrame으로 초기화
-            self.current_session_simulated_logs: 빈 리스트로 초기화
+            user_id (Optional[int]): 환경에 할당할 사용자 ID.
         """
         self.current_user_original_logs_df = pd.DataFrame()
         self.current_session_simulated_logs = []
@@ -133,17 +129,7 @@ class RecEnv(gym.Env, BaseEnv):
             self.current_user_info = {"id": -1, "uuid": "dummy_user"}
 
     def _init_spaces(self) -> None:
-        """
-        observation_space와 action_space를 정의합니다.
-
-        observation_space:
-            - Box(low=-inf, high=inf, shape=(state_dim,), dtype=float32)
-        action_space:
-            - Tuple of (Discrete(type_count), Discrete(MAX_CANDIDATE_INDEX)) 반복 self.top_k 회
-
-        Constants:
-            MAX_CANDIDATE_INDEX (int): 후보 인덱스의 최대값 (24)
-        """
+        """observation_space와 action_space를 정의합니다."""
         state_dim = self.embedder.output_dim()
         self._observation_space = spaces.Box(
             low=-np.inf, high=np.inf, shape=(state_dim,), dtype=np.float32
@@ -163,9 +149,7 @@ class RecEnv(gym.Env, BaseEnv):
         )
 
     def _set_current_user_info(self, user_id: Optional[int]) -> None:
-        """
-        사용자 ID를 기반으로 환경 내 현재 사용자 정보를 설정합니다.
-        사용자 정보가 없으면 더미 사용자를 등록합니다.
+        """사용자 ID를 기반으로 환경 내 현재 사용자 정보를 설정합니다.
 
         Args:
             user_id (Optional[int]): 환경에 할당할 사용자 ID.
@@ -199,9 +183,7 @@ class RecEnv(gym.Env, BaseEnv):
     def _merge_logs_with_content_type(
         self, base_logs_df: pd.DataFrame, simulated_logs_list: List[Dict]
     ) -> pd.DataFrame:
-        """
-        사용자의 실제 로그와 시뮬레이션 로그를 병합한 뒤,
-        각 로그에 대해 콘텐츠 타입 정보를 병합(조인)합니다.
+        """실제 로그와 시뮬레이션 로그를 병합한 후 콘텐츠 타입 정보를 병합합니다.
 
         Args:
             base_logs_df (pd.DataFrame): 원본 사용자 로그.
@@ -235,8 +217,7 @@ class RecEnv(gym.Env, BaseEnv):
     def _get_user_data_for_embedding(
         self, base_logs_df: pd.DataFrame, simulated_logs_list: List[Dict]
     ) -> Dict:
-        """
-        사용자 임베딩에 필요한 dict 데이터를 생성합니다.
+        """사용자 임베딩에 필요한 dict 데이터를 생성합니다.
 
         Args:
             base_logs_df (pd.DataFrame): 원본 사용자 로그.
@@ -256,15 +237,14 @@ class RecEnv(gym.Env, BaseEnv):
     def _select_contents_from_action(
         self, cand_dict: Dict, action_list: List[Tuple[str, int]]
     ) -> List[Dict]:
-        """
-        액션 리스트에서 실제 추천할 콘텐츠들을 추출합니다.
+        """액션 리스트에서 실제 추천할 콘텐츠들을 추출합니다.
 
         Args:
             cand_dict (Dict): 추천 후보군 {타입: [콘텐츠, ...]}.
             action_list (List[Tuple[str, int]]): [(콘텐츠 타입, 후보 인덱스), ...] 리스트.
 
         Returns:
-            List[Dict]: 선택된 콘텐츠들, 유효하지 않으면 빈 리스트.
+            List[Dict]: 선택된 콘텐츠 리스트.
         """
         selected_contents = []
         for ctype, cand_idx in action_list:
@@ -284,7 +264,7 @@ class RecEnv(gym.Env, BaseEnv):
         Args:
             content (Dict): 추천된 콘텐츠 정보.
             event_type (str): "VIEW" 또는 "CLICK".
-            dwell_time (Optional[int]): None이면 VIEW→0, CLICK→랜덤(60~600).
+            dwell_time (Optional[int], optional): None이면 VIEW→0, CLICK→랜덤(60~600).
 
         Returns:
             Dict: user_logs 포맷의 단일 로그 엔트리.
@@ -320,24 +300,33 @@ class RecEnv(gym.Env, BaseEnv):
 
     @property
     def observation_space(self) -> spaces.Box:
+        """관찰(observation) 벡터의 공간 분포를 반환합니다.
+
+        Returns:
+            spaces.Box: 상태 공간 객체.
+        """
         return self._observation_space
 
     @property
     def action_space(self) -> spaces.Tuple:
+        """행동(action) 공간 분포를 반환합니다.
+
+        Returns:
+            spaces.Tuple: 액션 공간 객체.
+        """
         return self._action_space
 
     def reset(
         self, seed: Optional[int] = None, options: Optional[Dict] = None
     ) -> Tuple[np.ndarray, Dict]:
-        """
-        환경을 초기화합니다. (에피소드 시작)
+        """환경을 초기화합니다. (에피소드 시작)
 
         Args:
-            seed (Optional[int]): 랜덤 시드.
-            options (Optional[Dict]): 추가 옵션.
+            seed (Optional[int], optional): 랜덤 시드.
+            options (Optional[Dict], optional): 추가 옵션.
 
         Returns:
-            tuple[np.ndarray, Dict]: 초기 상태 벡터, 기타 info.
+            Tuple[np.ndarray, Dict]: 초기 상태 벡터와 기타 정보.
         """
         if options and "query" in options:
             self.current_query = options["query"]
@@ -357,14 +346,13 @@ class RecEnv(gym.Env, BaseEnv):
     def step(
         self, action_list: List[Tuple[str, int]]
     ) -> tuple[np.ndarray, float, bool, bool, Dict]:
-        """
-        환경에 액션 리스트(top-k 추천)을 적용하고, 다음 상태 및 보상 등을 반환합니다.
+        """환경에 액션 리스트(top-k 추천)를 적용하고, 다음 상태 및 보상 등을 반환합니다.
 
         Args:
-            action_list (List[Tuple[str, int]]): [(콘텐츠 타입, 후보 인덱스), ...] top-k 개의 액션
+            action_list (List[Tuple[str, int]]): [(콘텐츠 타입, 후보 인덱스), ...] top-k 개의 액션.
 
         Returns:
-            tuple:
+            Tuple:
                 - 다음 상태 (np.ndarray)
                 - 보상 (float)
                 - done (bool): 에피소드 종료 여부
@@ -443,8 +431,7 @@ class RecEnv(gym.Env, BaseEnv):
         return next_state, total_reward, done, False, info
 
     def get_candidates(self) -> Dict[str, List[Any]]:
-        """
-        현 상태에서 추천 후보군을 반환합니다.
+        """현 상태에서 추천 후보군을 반환합니다.
 
         Returns:
             Dict[str, List[Any]]: {타입: 후보 콘텐츠 리스트}

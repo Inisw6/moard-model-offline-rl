@@ -23,17 +23,20 @@ from components.simulation.llm_simu import LLMUserSimulator
 
 
 class ExperimentRunner:
-    """
-    실험 전체 루프를 실행하는 클래스.
-    YAML config를 읽어 각 실험을 seed별로 반복 수행.
+    """실험 전체 루프를 실행하는 클래스.
+
+    YAML config를 읽어 각 실험을 seed별로 반복 수행합니다.
+
+    Attributes:
+        cfg (Dict[str, Any]): 실험 설정 전체 딕셔너리.
+        result_log_path (str): 실험 결과 로그 파일 경로.
     """
 
     def __init__(self, config_path: str = "config/experiment.yaml") -> None:
-        """
-        ExperimentRunner 객체를 초기화합니다.
+        """ExperimentRunner 객체를 초기화합니다.
 
         Args:
-            config_path (str): 실험 설정 파일 경로 (YAML)
+            config_path (str): 실험 설정 파일 경로 (YAML).
         """
         self.cfg: Dict[str, Any] = yaml.safe_load(open(config_path))
         # self.cfg = self._load_config(config_path)
@@ -58,11 +61,10 @@ class ExperimentRunner:
     #         raise
 
     def set_seed(self, seed: int) -> None:
-        """
-        전체 환경의 랜덤 시드를 고정합니다.
+        """전체 환경의 랜덤 시드를 고정합니다.
 
         Args:
-            seed (int): 사용할 시드 값
+            seed (int): 사용할 시드 값.
         """
         os.environ["PYTHONHASHSEED"] = str(seed)
         random.seed(seed)
@@ -73,15 +75,13 @@ class ExperimentRunner:
         logging.info(f"Random seed set: {seed}")
 
     def run_single(self, seed: int) -> None:
-        """
-        실험 루프를 실행하여 구성된 모든 에피소드를 처리합니다.
+        """단일 실험 루프를 실행합니다. 모든 에피소드(episode)를 처리합니다.
 
         Args:
-            seed (int): The random seed used to initialize all RNGs for reproducibility.
+            seed (int): 실험 reproducibility를 위한 랜덤 시드.
 
         Raises:
-            ValueError: If an unsupported simulator type is specified or if env.step() returns
-                        an invalid result format.
+            ValueError: 지원하지 않는 시뮬레이터 타입이거나, env.step() 반환값이 잘못된 경우.
         """
         self.set_seed(seed)
         cfg: Dict[str, Any] = self.cfg
@@ -159,6 +159,7 @@ class ExperimentRunner:
         episode_metrics = []
 
         for ep, query in enumerate(queries, start=1):
+            qvalue_list = []
             try:
                 # 각 에피소드 시작 시 로그 출력
                 logging.info(
@@ -196,6 +197,9 @@ class ExperimentRunner:
                         )
                         enforce_list: List[Tuple[str, int]] = enforce_type_constraint(
                             q_values, top_k=max_recs
+                        )
+                        qvalue_list.extend(
+                            [q_values[t][idx] for t, idx in enforce_list]
                         )
 
                     # step 실행
@@ -260,6 +264,17 @@ class ExperimentRunner:
                 logging.info(
                     f"--- Episode {ep} End. Agent Epsilon: {getattr(agent, 'epsilon', float('nan')):.3f} ---"
                 )
+
+                # 에피소드 종료 후 Q-value 분산 계산
+                # todo: 여기 고려해야할거 같아요... 없는경우...
+                qvalue_variance = float("nan")
+                if qvalue_list:
+                    qvalue_variance = np.var(qvalue_list)
+                logging.info(
+                    f"--- Q-value Variance (Episode {ep}): {qvalue_variance:.6f}"
+                )
+
+                # 평가용 메트릭스 저장
                 episode_metrics.append(
                     {
                         "seed": seed,
@@ -273,6 +288,7 @@ class ExperimentRunner:
                         ),
                         "epsilon": getattr(agent, "epsilon", float("nan")),
                         "datetime": datetime.now().isoformat(),
+                        "qvalue_variance": qvalue_variance,
                     }
                 )
 
@@ -298,15 +314,11 @@ class ExperimentRunner:
         self.save_results(episode_metrics)
 
     def save_results(self, metrics: List[Dict[str, Any]]) -> None:
-        """
-        실험 결과(metrics)를 CSV 파일로 저장합니다.
+        """실험 결과(metrics)를 CSV 파일로 저장합니다.
 
         Args:
             metrics (List[Dict[str, Any]]): 저장할 메트릭 리스트.
                 각 딕셔너리의 키가 CSV의 컬럼명(fieldnames)이 됩니다.
-
-        Returns:
-            None
 
         Notes:
             - 로그 파일 경로(self.result_log_path)의 확장자를 .csv로 변경하여 저장합니다.
@@ -326,9 +338,7 @@ class ExperimentRunner:
                 writer.writerow(row)
 
     def run_all(self) -> None:
-        """
-        config에 정의된 모든 seed에 대해 실험을 실행합니다.
-        """
+        """config에 정의된 모든 seed에 대해 실험을 실행합니다."""
         seeds: List[int] = self.cfg["experiment"].get("seeds", [0])
         for s in seeds:
             try:
@@ -339,7 +349,5 @@ class ExperimentRunner:
 
 
 if __name__ == "__main__":
-    """
-    main 엔트리포인트. 실험을 실행합니다.
-    """
+    """main 엔트리포인트. 실험을 실행합니다."""
     ExperimentRunner().run_all()

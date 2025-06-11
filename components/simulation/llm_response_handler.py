@@ -6,35 +6,37 @@ from typing import Dict, List, Tuple
 
 
 class LLMResponseHandler:
-    """
-    LLM 시뮬레이터 응답 처리 및 검증을 담당하는 클래스
+    """LLM 시뮬레이터 응답 처리 및 검증을 담당하는 클래스.
+
+    LLM에서 생성된 원본 텍스트를 파싱하여 사용자 반응 리스트로 변환하며,
+    폴백 응답 생성 및 응답 검증, 로깅, 변환 등의 유틸리티 기능을 제공합니다.
+
+    Attributes:
+        debug (bool): 디버깅 로그 출력 여부.
     """
 
-    def __init__(self, debug: bool = False):
-        """
+    def __init__(self, debug: bool = False) -> None:
+        """LLMResponseHandler 객체를 초기화합니다.
+
         Args:
-            debug (bool): 디버깅 로그 출력 여부
+            debug (bool): 디버깅 로그 출력 여부.
         """
         self.debug = debug
 
     def _parse_json(self, text: str) -> List[Dict]:
-        """
-        LLM 원본 텍스트에서 JSON 배열을 파싱합니다.
+        """LLM 원본 텍스트에서 JSON 배열을 파싱합니다.
 
-        이 메서드는 Markdown 코드 펜스(````json` 또는 ``````)를 제거하고,
-        남은 텍스트를 JSON으로 디코딩하여 응답 객체 리스트를 반환합니다.
-        지원하는 JSON 구조는 다음 두 가지입니다:
-          1. 최상위 요소가 배열인 JSON.
-          2. 최상위 요소가 딕셔너리이고, `"responses"` 키에 응답 리스트가 있는 경우.
+        Markdown 코드펜스(````json` 등)를 제거하고 남은 텍스트를 JSON으로 디코딩합니다.
+        지원하는 구조는 (1) 배열 또는 (2) {"responses": [...]} 딕셔너리입니다.
 
         Args:
-            text (str): LLM에서 생성된 원본 텍스트. Markdown 코드 펜스로 감싸져 있을 수 있습니다.
+            text (str): LLM에서 생성된 원본 텍스트.
 
         Returns:
             List[Dict]: 파싱된 응답 객체들의 리스트.
 
         Raises:
-            ValueError: JSON 구조가 예상과 다르거나 디코딩에 실패했을 때 발생합니다.
+            ValueError: JSON 구조가 예상과 다르거나 디코딩에 실패한 경우.
         """
 
         if self.debug:
@@ -81,7 +83,7 @@ class LLMResponseHandler:
             expected_count (int): 기대하는 응답 개수(top-k 등).
 
         Raises:
-            ValueError: 실제 응답 수가 기대 수와 일치하지 않을 경우 발생합니다.
+            ValueError: 실제 응답 수가 기대 수와 일치하지 않을 경우.
         """
         actual_count = len(responses)
 
@@ -99,14 +101,13 @@ class LLMResponseHandler:
     def create_fallback_response(
         self, use_click_probability: float = 0.2
     ) -> Tuple[str, int]:
-        """
-        LLM 응답 실패 시 사용할 폴백 응답을 생성합니다.
+        """LLM 응답 실패 시 사용할 폴백(랜덤) 응답을 생성합니다.
 
         Args:
-            use_click_probability (float): 클릭 확률
+            use_click_probability (float): 클릭 이벤트가 생성될 확률.
 
         Returns:
-            Tuple[str, int]: (이벤트 타입, 체류시간)
+            Tuple[str, int]: (이벤트 타입, 체류시간).
         """
         event_type = "CLICK" if random.random() < use_click_probability else "VIEW"
         dwell_time = (
@@ -123,16 +124,15 @@ class LLMResponseHandler:
     def extract_all_responses(
         self, llm_raw_text: str, all_contents: List[Dict]
     ) -> List[Dict]:
-        """
-        LLM 원본 텍스트에서 모든 콘텐츠에 대한 사용자 반응을 추출합니다.
+        """LLM 원본 텍스트에서 모든 콘텐츠에 대한 사용자 반응을 추출합니다.
 
         Args:
-            llm_raw_text (str): LLM의 원본 응답 텍스트
-            all_contents (List[Dict]): 전체 콘텐츠 리스트
+            llm_raw_text (str): LLM의 원본 응답 텍스트.
+            all_contents (List[Dict]): 전체 콘텐츠 리스트.
 
         Returns:
-            List[Dict]: 각 콘텐츠별 반응 정보
-                       [{"content_id": int, "clicked": bool, "dwell_time": int}, ...]
+            List[Dict]: 각 콘텐츠별 반응 정보.
+                [{"content_id": int, "clicked": bool, "dwell_time": int}, ...]
         """
         try:
             # 1. JSON 파싱
@@ -153,15 +153,14 @@ class LLMResponseHandler:
     def _extract_all_content_responses(
         self, responses: List[Dict], all_contents: List[Dict]
     ) -> List[Dict]:
-        """
-        모든 콘텐츠에 대한 응답을 추출하고 변환합니다.
+        """모든 콘텐츠에 대한 응답을 추출하고 검증합니다.
 
         Args:
             responses (List[Dict]): LLM 또는 시뮬레이터에서 받은 응답 리스트.
             all_contents (List[Dict]): 추천한 전체 콘텐츠 리스트.
 
         Returns:
-            List[Dict]: 각 콘텐츠별 응답 딕셔너리 리스트. (content_id, clicked, dwell_time)
+            List[Dict]: 각 콘텐츠별 응답 딕셔너리 리스트 (content_id, clicked, dwell_time).
         """
 
         result = []
@@ -221,15 +220,14 @@ class LLMResponseHandler:
     def _parse_single_response_for_all(
         self, response: Dict, content_id: int
     ) -> Tuple[bool, int]:
-        """
-        단일 응답을 파싱하여 클릭 여부와 체류시간을 반환합니다.
+        """단일 응답을 파싱하여 클릭 여부와 체류시간을 반환합니다.
 
         Args:
             response (Dict): 단일 콘텐츠에 대한 응답 딕셔너리.
             content_id (int): 검증 대상 콘텐츠 ID.
 
         Returns:
-            Tuple[bool, int]: (클릭 여부, 체류 시간(초)). 예시: (True, 127)
+            Tuple[bool, int]: (클릭 여부, 체류 시간(초)).
 
         Notes:
             - 입력 값에 이상이 있으면 경고 로그를 남기고 보정합니다.
@@ -279,8 +277,13 @@ class LLMResponseHandler:
         return clicked, int(dwell_time)
 
     def _create_fallback_all_responses(self, all_contents: List[Dict]) -> List[Dict]:
-        """
-        LLM 응답 실패 시 모든 콘텐츠에 대한 폴백 응답을 생성합니다.
+        """LLM 응답 실패 시 모든 콘텐츠에 대해 폴백(랜덤) 응답을 생성합니다.
+
+        Args:
+            all_contents (List[Dict]): 전체 콘텐츠 리스트.
+
+        Returns:
+            List[Dict]: 각 콘텐츠별 폴백 응답 리스트.
         """
         responses = []
         for content in all_contents:

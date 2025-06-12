@@ -126,7 +126,7 @@ class DQNAgent(BaseAgent):
             (user_state, content_emb), reward, (next_state, next_cands_embs), done
         )
 
-    def learn(self) -> None:
+    def learn(self) -> float:
         """리플레이 버퍼에서 샘플을 추출해 Q 네트워크를 업데이트합니다."""
         if len(self.buffer) < self.batch_size:
             return

@@ -271,6 +271,8 @@ class DuelingDQNAgent(BaseAgent):
             )
             self.target_q_net.load_state_dict(self.q_net.state_dict())
 
+        return loss.item()
+
     def decay_epsilon(self):
         """탐험률(epsilon)을 감소시킵니다."""
         self.epsilon = max(self.epsilon * self.epsilon_dec, self.epsilon_min)

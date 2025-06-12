@@ -15,7 +15,23 @@ from replay.replay_buffer import ReplayBuffer
 
 @register("dueling_dqn")
 class DuelingDQNAgent(BaseAgent):
-    """Dueling DQN 기반 추천 에이전트."""
+    """DQN 기반 추천 에이전트.
+
+    Attributes:
+        device (torch.device): 사용할 디바이스(CPU 또는 GPU).
+        q_net (QNetwork): Q 네트워크.
+        target_q_net (QNetwork): 타겟 Q 네트워크.
+        optimizer (torch.optim.Optimizer): 옵티마이저.
+        buffer (ReplayBuffer): 리플레이 버퍼.
+        gamma (float): 할인 계수.
+        batch_size (int): 배치 크기.
+        epsilon (float): 탐험률.
+        epsilon_min (float): 최소 탐험률.
+        epsilon_dec (float): 탐험률 감소 계수.
+        update_freq (int): 타겟 네트워크 업데이트 빈도.
+        step_count (int): 학습 단계 카운터.
+        loss_type (str): 손실 함수 종류.
+    """
 
     def __init__(
         self,
@@ -32,6 +48,22 @@ class DuelingDQNAgent(BaseAgent):
         loss_type: str = "smooth_l1",
         device: str = "cpu",
     ) -> None:
+        """DQNAgent 생성자.
+
+        Args:
+            user_dim (int): 사용자 상태 임베딩 차원.
+            content_dim (int): 콘텐츠 임베딩 차원.
+            lr (float): 학습률.
+            batch_size (int): 배치 크기.
+            eps_start (float): 초기 탐험률.
+            eps_min (float): 최소 탐험률.
+            eps_decay (float): 탐험률 감소 계수.
+            gamma (float): 할인 계수.
+            update_freq (int): 타겟 네트워크 업데이트 주기.
+            capacity (int): 리플레이 버퍼 용량.
+            loss_type (str, optional): 손실 함수 종류 ('mse' 또는 'smooth_l1'). 기본값 'smooth_l1'.
+            device (str, optional): 사용할 디바이스 ('cpu' 또는 'cuda'). 기본값 'cpu'.
+        """
         self.device = torch.device("cuda" if torch.cuda.is_available() else device)
         self.q_net = DuelingQNetwork(user_dim, content_dim).to(self.device)
         self.target_q_net = DuelingQNetwork(user_dim, content_dim).to(self.device)
@@ -48,8 +80,6 @@ class DuelingDQNAgent(BaseAgent):
         self.update_freq = update_freq
         self.step_count = 0
         self.loss_type = loss_type
-
-    # 나머지 메서드는 DQNAgent와 동일하게 복사/사용
 
     def select_action(
         self, user_state: List[float], candidate_embs: List[List[float]]

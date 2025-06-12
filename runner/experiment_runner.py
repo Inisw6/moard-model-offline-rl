@@ -182,22 +182,29 @@ class ExperimentRunner:
                             if cid not in emb_cache:
                                 emb_cache[cid] = embedder.embed_content(cand)
 
-                    # ε-greedy를 통한 슬레이트 선택
-                    if random.random() < agent.epsilon:
-                        # Exploration: 무작위 슬레이트 생성
-                        enforce_list: List[Tuple[str, int]] = []
-                        types = list(cand_dict.keys())
-                        for _ in range(max_recs):
-                            t = random.choice(types)
-                            idx = random.randrange(len(cand_dict[t]))
-                            enforce_list.append((t, idx))
-                    else:
-                        # Exploitation: Q값 기반 슬레이트 생성
+                    # 에이전트의 select_slate를 통해 슬레이트 선택
+                    candidate_embs: Dict[str, List[List[float]]] = {}
+                    for ctype, contents in cand_dict.items():
+                        if contents:
+                            embeddings = [
+                                emb_cache.get(c.get("id"), embedder.embed_content(c))
+                                for c in contents
+                            ]
+                            candidate_embs[ctype] = [
+                                emb.tolist() for emb in embeddings
+                            ]
+                        else:
+                            candidate_embs[ctype] = []
+
+                    enforce_list = agent.select_slate(
+                        state, candidate_embs, max_recs=max_recs
+                    )
+
+                    # Q-value 계산 (로깅용)
+                    if random.random() >= agent.epsilon:
+                        # Exploitation인 경우에만 Q-value 계산
                         q_values: Dict[str, List[float]] = compute_all_q_values(
                             state, cand_dict, embedder, agent, emb_cache=emb_cache
-                        )
-                        enforce_list: List[Tuple[str, int]] = enforce_type_constraint(
-                            q_values, top_k=max_recs
                         )
                         qvalue_list.extend(
                             [q_values[t][idx] for t, idx in enforce_list]

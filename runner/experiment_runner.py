@@ -159,8 +159,6 @@ class ExperimentRunner:
         episode_metrics = []
         step_metrics = []
 
-        loss_ex = []
-
         for ep, query in enumerate(queries, start=1):
             qvalue_list = []
             try:
@@ -175,8 +173,7 @@ class ExperimentRunner:
                 rec_count = 0
                 emb_cache: Dict[Any, Any] = {}
 
-
-                while not done:                                                                                           
+                while not done:
                     # 후보 임베딩 캐시
                     cand_dict: Dict[str, List[Any]] = env.get_candidates()
                     for ctype, cands in cand_dict.items():
@@ -260,25 +257,28 @@ class ExperimentRunner:
                             done,
                         )
                     # 에이전트 학습 -> 위치에 따라 다름, 지금은 6개 모두 추천 작업 진행 후 학습
-                    loss=(agent.learn())
+                    loss = agent.learn()
                     state = next_state
                     # ε 감소: 한 env.step 당 한 번만 적용
                     agent.decay_epsilon()
 
                     step_metrics.append(
-                    {
-                        "seed": seed,
-                        "query": query,
-                        "total_reward": total_reward,
-                        "recommendations": rec_count,
-                        "clicks": info.get("total_clicks", 0),
-                        "click_ratio": (
-                            info.get("total_clicks", 0) / rec_count if rec_count else 0
-                        ),
-                        "epsilon": getattr(agent, "epsilon", float("nan")),
-                        "datetime": datetime.now().isoformat(),
-                        "loss" : loss if type(loss)==float else -1,
-                    })
+                        {
+                            "seed": seed,
+                            "query": query,
+                            "total_reward": total_reward,
+                            "recommendations": rec_count,
+                            "clicks": info.get("total_clicks", 0),
+                            "click_ratio": (
+                                info.get("total_clicks", 0) / rec_count
+                                if rec_count
+                                else 0
+                            ),
+                            "epsilon": getattr(agent, "epsilon", float("nan")),
+                            "datetime": datetime.now().isoformat(),
+                            "loss": loss if type(loss) == float else -1,
+                        }
+                    )
 
                 logging.info(
                     f"--- Episode {ep} End. Agent Epsilon: {getattr(agent, 'epsilon', float('nan')):.3f} ---"
@@ -309,7 +309,6 @@ class ExperimentRunner:
                         "qvalue_variance": qvalue_variance,
                     }
                 )
-
 
                 if ep % 5 == 0:
                     save_dir = "saved_models"

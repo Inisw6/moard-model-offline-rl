@@ -5,4 +5,5 @@ __pycache__/
 *.pyd
 *.pyw
 *.pyz
-saved_models/
+data/logs/
+data/models/

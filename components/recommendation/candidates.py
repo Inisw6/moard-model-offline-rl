@@ -1,10 +1,9 @@
 from typing import Any, Dict, List
 
-import numpy as np
+import pandas as pd
 
 from components.core.base import BaseCandidateGenerator
 from components.registry import register
-from components.database.db_utils import get_contents
 
 
 @register("query")
@@ -18,14 +17,15 @@ class QueryCandidateGenerator(BaseCandidateGenerator):
         all_contents_df (pd.DataFrame): 콘텐츠 전체 목록 데이터프레임.
     """
 
-    def __init__(self, max_count_by_content: int) -> None:
+    def __init__(self, contents_df: pd.DataFrame, max_count_by_content: int) -> None:
         """QueryCandidateGenerator 생성자.
 
         Args:
+            contents_df (pd.DataFrame): 사전에 로드된 전체 콘텐츠 데이터프레임.
             max_count_by_content (int): 각 타입별 반환할 후보군의 최대 개수.
         """
         self.max_count_by_content = max_count_by_content
-        self.all_contents_df = get_contents()
+        self.all_contents_df = contents_df
         # 성능 개선: 대량 데이터에서는 미리 records로 캐싱하거나, DataFrame을 활용해 nlargest로 최적화하는 방안을 추천
         # self.records_by_type = {...}  # 향후 캐시 구조 등으로 확장 가능
 

@@ -63,6 +63,7 @@ class QNetwork(nn.Module):
         x = torch.cat([user, content], dim=1)
         return self.net(x)  # [batch, 1]
 
+
 class DuelingQNetwork(nn.Module):
     """Dueling 구조의 Q-Value 예측 네트워크.
 
@@ -78,6 +79,7 @@ class DuelingQNetwork(nn.Module):
     Output:
         torch.Tensor: [batch_size, 1] Q-value
     """
+
     def __init__(self, user_dim: int, content_dim: int, hidden_dim: int = 128) -> None:
         """
         DuelingQNetwork 클래스 생성자.
@@ -101,15 +103,15 @@ class DuelingQNetwork(nn.Module):
         )
         # Value stream: 상태의 가치를 추정
         self.value_stream = nn.Sequential(
-            nn.Linear(hidden_dim, hidden_dim//2),
+            nn.Linear(hidden_dim, hidden_dim // 2),
             nn.ReLU(),
-            nn.Linear(hidden_dim//2, 1)
+            nn.Linear(hidden_dim // 2, 1),
         )
         # Advantage stream: 각 행동의 상대적 우수성을 추정
         self.adv_stream = nn.Sequential(
-            nn.Linear(hidden_dim, hidden_dim//2),
+            nn.Linear(hidden_dim, hidden_dim // 2),
             nn.ReLU(),
-            nn.Linear(hidden_dim//2, 1)
+            nn.Linear(hidden_dim // 2, 1),
         )
 
     def forward(self, user: torch.Tensor, content: torch.Tensor) -> torch.Tensor:
@@ -124,8 +126,8 @@ class DuelingQNetwork(nn.Module):
             torch.Tensor: [batch_size, 1] Q-value
         """
         x = torch.cat([user, content], dim=-1)  # 입력 벡터 결합
-        h = self.shared(x)                      # 공유 네트워크 통과
-        v = self.value_stream(h)                # Value stream 결과
-        a = self.adv_stream(h)                  # Advantage stream 결과
+        h = self.shared(x)  # 공유 네트워크 통과
+        v = self.value_stream(h)  # Value stream 결과
+        a = self.adv_stream(h)  # Advantage stream 결과
         # Dueling 구조의 Q-value 계산
         return v + (a - a.mean(dim=0, keepdim=True))

@@ -10,7 +10,7 @@ from torch.optim import Adam
 
 from components.core.base import BaseAgent
 from components.registry import register
-from models.q_network import QNetwork
+from models.q_network import QNetwork, DuelingQNetwork
 from replay.replay_buffer import ReplayBuffer
 
 
@@ -223,6 +223,7 @@ class DQNAgent(BaseAgent):
             )
             self.target_q_net.load_state_dict(self.q_net.state_dict())
 
+<<<<<<< HEAD
 <<<<<<< HEAD:components/agents/dqn_agent.py
 <<<<<<< HEAD:components/agents/dqn_agent.py
 <<<<<<< HEAD:components/agents/dqn_agent.py
@@ -294,6 +295,8 @@ class DQNAgent(BaseAgent):
 >>>>>>> 7f155c4 (feat: pytorch 관련 평가, 학습 모드 적용 및 코드 일관화):components/agents/agents.py
 =======
 >>>>>>> c91ba78 (feat: Dueling DQN 에이전트 추가,):components/agents/agents.py
+=======
+>>>>>>> bed7683 (feat: Dueling DQN 에이전트 추가,)
     def decay_epsilon(self):
         """탐험률(epsilon)을 감소시킵니다."""
         self.epsilon = max(self.epsilon * self.epsilon_dec, self.epsilon_min)
@@ -335,11 +338,14 @@ class DQNAgent(BaseAgent):
         self.target_q_net.eval()
         logging.info(f"[DQNAgent] Checkpoint loaded from {path}")
 <<<<<<< HEAD
+<<<<<<< HEAD
 <<<<<<< HEAD:components/agents/dqn_agent.py
 <<<<<<< HEAD:components/agents/dqn_agent.py
 =======
 >>>>>>> 2277ad3 (feat: Dueling DQN 에이전트 추가,):components/agents/agents.py
 
+=======
+>>>>>>> bed7683 (feat: Dueling DQN 에이전트 추가,)
 
 
 @register("dueling_dqn")
@@ -525,6 +531,7 @@ class DuelingDQNAgent(BaseAgent):
         self.q_net.train()
         self.target_q_net.eval()
         logging.info(f"[DuelingQNAgent] Checkpoint loaded from {path}")
+<<<<<<< HEAD
 <<<<<<< HEAD:components/agents/dqn_agent.py
 =======
 >>>>>>> 8ad0422 (feat: pytorch 관련 평가, 학습 모드 적용 및 코드 일관화):components/agents/agents.py
@@ -532,3 +539,5 @@ class DuelingDQNAgent(BaseAgent):
 >>>>>>> 2277ad3 (feat: Dueling DQN 에이전트 추가,):components/agents/agents.py
 =======
 >>>>>>> 51d0e23 (feat: agent 및 q network 분리)
+=======
+>>>>>>> bed7683 (feat: Dueling DQN 에이전트 추가,)

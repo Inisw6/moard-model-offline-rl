@@ -137,13 +137,14 @@ class SimpleUserEmbedder(BaseUserEmbedder):
             self.content_types[i]: float(type_prefs[i]) for i in range(len(type_prefs))
         }
 
+
 @register("weighted_user")
 class WeightedUserEmbedder(BaseUserEmbedder):
     """가중치 기반 사용자 임베딩 추출기.
-    
-        - 사용자의 최근 로그에 시간 기반 가중치를 적용
-        - 가중 평균을 통해 ratio, time, 콘텐츠 타입별 선호도를 계산
-        - 벡터 구성: [가중 평균 ratio, 가중 평균 time, 콘텐츠 타입별 가중 비율, 0 패딩]
+
+    - 사용자의 최근 로그에 시간 기반 가중치를 적용
+    - 가중 평균을 통해 ratio, time, 콘텐츠 타입별 선호도를 계산
+    - 벡터 구성: [가중 평균 ratio, 가중 평균 time, 콘텐츠 타입별 가중 비율, 0 패딩]
     """
 
     def __init__(
@@ -154,14 +155,14 @@ class WeightedUserEmbedder(BaseUserEmbedder):
         all_contents_df: Optional[object] = None,
     ) -> None:
         """WeightedUserEmbedder 생성자.
-        
+
         Args:
             user_dim (int): 출력할 유저 임베딩 벡터의 차원.
             time_decay_factor (float): 시간 감쇠 계수 (0~1, 클수록 최근 로그 가중치 높음).
             max_logs (int): 고려할 최대 로그 개수.
             all_contents_df (Optional[pandas.DataFrame]): 테스트용 외부 콘텐츠 DataFrame.
         """
-        
+
         # 생성시 인자로 전달받은 DataFrame이 없다면 실제 DB에서 가져옴
         self.all_contents_df = (
             all_contents_df if all_contents_df is not None else get_contents()
@@ -191,8 +192,8 @@ class WeightedUserEmbedder(BaseUserEmbedder):
             )
             self.user_dim = min_user_dim
         else:
-            self.user_dim = user_dim   
-        
+            self.user_dim = user_dim
+
     def output_dim(self):
         """유저 임베딩 벡터의 차원을 반환합니다.
 
@@ -200,14 +201,14 @@ class WeightedUserEmbedder(BaseUserEmbedder):
             int: 유저 임베딩 벡터의 차원.
         """
         return self.user_dim
-    
+
     def _calculate_time_weight(self, log_time: float, current_time: float) -> float:
         """시간 기반 가중치를 계산합니다.
-        
+
         Args:
             log_time (float): 로그 시간 (timestamp).
             current_time (float): 현재 시간 (timestamp).
-            
+
         Returns:
             float: 시간 가중치 (0~1).
         """
@@ -215,25 +216,25 @@ class WeightedUserEmbedder(BaseUserEmbedder):
         # 시간 차이에 따른 지수 감쇠 (1시간 단위로 정규화)
         weight = np.exp(-self.time_decay_factor * time_diff / 3600)
         return max(0.0, min(1.0, weight))
-    
+
     def _get_content_type_by_id(self, content_id: int) -> str:
         """콘텐츠 ID로 콘텐츠 타입을 조회합니다.
-        
+
         Args:
             content_id (int): 콘텐츠 ID.
-            
+
         Returns:
             str: 콘텐츠 타입.
         """
         if self.all_contents_df.empty:
             return "unknown"
-            
+
         content_row = self.all_contents_df[self.all_contents_df["id"] == content_id]
         if content_row.empty:
             return "unknown"
-        
+
         return str(content_row.iloc[0].get("type", "unknown")).lower()
-    
+
     def embed_user(self, user: dict) -> np.ndarray:
         """사용자의 최근 로그 및 활동을 가중치 기반으로 벡터화합니다.
 
@@ -258,7 +259,7 @@ class WeightedUserEmbedder(BaseUserEmbedder):
 
         # 최대 로그 개수 제한 (최신 로그부터)
         if len(logs) > self.max_logs:
-            logs = logs[-self.max_logs:]
+            logs = logs[-self.max_logs :]
 
         # 현재 시간 설정
         current_time = user.get("current_time")
@@ -271,7 +272,7 @@ class WeightedUserEmbedder(BaseUserEmbedder):
         weighted_ratio_sum = 0.0
         weighted_time_sum = 0.0
         total_weight = 0.0
-        
+
         # 콘텐츠 타입별 가중 카운트
         weighted_type_counts = {t: 0.0 for t in self.content_types}
 
@@ -280,22 +281,22 @@ class WeightedUserEmbedder(BaseUserEmbedder):
             log_ratio = log.get("ratio", 0.0)
             log_time = log.get("time", current_timestamp)
             content_id = log.get("content_id")
-            
+
             # 시간 기반 가중치 계산
             time_weight = self._calculate_time_weight(log_time, current_timestamp)
-            
+
             # 사용자 행동 기반 가중치 (ratio 활용)
             behavior_weight = max(0.1, log_ratio)  # 최소 가중치 0.1
-            
+
             # 전체 가중치 = 시간 가중치 × 행동 가중치
             log_weight = time_weight * behavior_weight
-            
+
             if log_weight > 0:
                 # 가중 합계에 추가
                 weighted_ratio_sum += log_ratio * log_weight
                 weighted_time_sum += log_time * log_weight
                 total_weight += log_weight
-                
+
                 # 콘텐츠 타입별 가중 카운트
                 if content_id is not None:
                     content_type = self._get_content_type_by_id(content_id)
@@ -317,24 +318,29 @@ class WeightedUserEmbedder(BaseUserEmbedder):
 
         # 콘텐츠 타입별 가중 비율 계산
         total_weighted_type_count = sum(weighted_type_counts.values())
-        type_vec = np.array([
-            (weighted_type_counts[t] / total_weighted_type_count) 
-            if total_weighted_type_count > 0 else 0.0
-            for t in self.content_types
-        ])
+        type_vec = np.array(
+            [
+                (
+                    (weighted_type_counts[t] / total_weighted_type_count)
+                    if total_weighted_type_count > 0
+                    else 0.0
+                )
+                for t in self.content_types
+            ]
+        )
 
         # [가중 평균 ratio, 가중 평균 time]과 타입 가중 비율 벡터를 연결
         vec = np.concatenate([[weighted_ratio_avg, weighted_time_avg], type_vec])
-        
+
         if len(vec) < self.user_dim:
             # 벡터가 작으면 0으로 패딩
             vec = np.pad(vec, (0, self.user_dim - len(vec)), "constant")
         elif len(vec) > self.user_dim:
             # 벡터가 크면 잘라냄
-            vec = vec[:self.user_dim]
+            vec = vec[: self.user_dim]
 
         return vec.astype(np.float32)
-    
+
     def estimate_preference(self, state: np.ndarray) -> dict:
         """유저 임베딩 벡터에서 콘텐츠 타입별 선호도를 추정합니다.
 
@@ -348,16 +354,16 @@ class WeightedUserEmbedder(BaseUserEmbedder):
             return {t: 0.0 for t in self.content_types}
 
         # 2:2+N 구간이 타입별 가중 비율 정보
-        type_prefs = state[2:2 + self.num_content_types]
-        
+        type_prefs = state[2 : 2 + self.num_content_types]
+
         # 추가적으로 ratio와 time 정보도 활용
         weighted_ratio = state[0] if len(state) > 0 else 0.0
-        
+
         # ratio가 높을수록 전체적인 선호도 증폭
         amplification_factor = 1.0 + (weighted_ratio * 0.5)
-        
+
         return {
-            self.content_types[i]: float(type_prefs[i] * amplification_factor) 
+            self.content_types[i]: float(type_prefs[i] * amplification_factor)
             for i in range(len(type_prefs))
         }
 
@@ -664,39 +670,3 @@ class SimpleContentEmbedder(BaseContentEmbedder):
                 final_vec = final_vec[: self.content_dim]
 
         return final_vec.astype(np.float32)
-
-
-@register("simple_concat")
-class SimpleConcatEmbedder(BaseEmbedder):
-    """SimpleUserEmbedder와 SimpleContentEmbedder를 결합한 임베더.
-
-    - 지정된 user_embedder와 content_embedder에 위임하여 임베딩 수행.
-    """
-
-    def __init__(self, user_embedder: dict, content_embedder: dict) -> None:
-        """SimpleConcatEmbedder 생성자.
-
-        Args:
-            user_embedder (dict): {"type": str, "params": dict}
-            content_embedder (dict): {"type": str, "params": dict}
-        """
-        from components.registry import make
-
-        # 레지스트리에서 user 임베더 인스턴스 생성
-        self.user_embedder = make(user_embedder["type"], **user_embedder["params"])
-        # 레지스트리에서 content 임베더 인스턴스 생성
-        self.content_embedder = make(
-            content_embedder["type"], **content_embedder["params"]
-        )
-
-        # content_embedder로부터 콘텐츠 타입 목록과 매핑 정보 가져오기
-        self.content_types = self.content_embedder.content_types
-        self.num_content_types = len(self.content_types)
-        self.type_to_idx_map = {t: i for i, t in enumerate(self.content_types)}
-
-        # user_dim과 content_dim 정보 저장
-        self.user_dim = self.user_embedder.user_dim
-        self.content_dim = self.content_embedder.content_dim
-
-        # BaseEmbedder 초기화 (user_embedder, content_embedder를 인자로 전달)
-        super().__init__(self.user_embedder, self.content_embedder)

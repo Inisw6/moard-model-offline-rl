@@ -9,7 +9,7 @@ import logging
 
 from components.core.base import BaseAgent
 from components.registry import register
-from models.q_network import QNetwork, DuelingQNetwork
+from models.q_network import QNetwork
 from replay.replay_buffer import ReplayBuffer
 
 
@@ -70,7 +70,7 @@ class DQNAgent(BaseAgent):
         self.target_q_net.load_state_dict(self.q_net.state_dict())
         self.target_q_net.eval()
 
-        self.optimizer = torch.optim.Adam(self.q_net.parameters(), lr=float(lr))
+        self.optimizer = torch.optim.Adam(self.q_net.parameters(), lr=lr)
         self.buffer = ReplayBuffer(capacity=capacity)
 
         self.gamma = gamma
@@ -248,6 +248,7 @@ class DQNAgent(BaseAgent):
         self.q_net.train()
         self.target_q_net.eval()
         logging.info(f"[DQNAgent] Checkpoint loaded from {path}")
+<<<<<<< HEAD:components/agents/dqn_agent.py
 
 
 @register("dueling_dqn")
@@ -433,3 +434,5 @@ class DuelingDQNAgent(BaseAgent):
         self.q_net.train()
         self.target_q_net.eval()
         logging.info(f"[DuelingQNAgent] Checkpoint loaded from {path}")
+=======
+>>>>>>> 8ad0422 (feat: pytorch 관련 평가, 학습 모드 적용 및 코드 일관화):components/agents/agents.py

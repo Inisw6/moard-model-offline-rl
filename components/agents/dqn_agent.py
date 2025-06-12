@@ -6,6 +6,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 import logging
+from torch.optim import Adam
 
 from components.core.base import BaseAgent
 from components.registry import register
@@ -330,6 +331,7 @@ class DQNAgent(BaseAgent):
 <<<<<<< HEAD:components/agents/dqn_agent.py
 =======
 >>>>>>> 2277ad3 (feat: Dueling DQN 에이전트 추가,):components/agents/agents.py
+
 
 
 @register("dueling_dqn")

@@ -126,43 +126,71 @@ class DQNAgent(BaseAgent):
         )
 
     def learn(self) -> float:
-        """리플레이 버퍼에서 샘플을 추출해 Q 네트워크를 업데이트합니다."""
+        """리플레이 버퍼에서 샘플을 추출해 Q 네트워크를 한 번 업데이트합니다.
+
+        Returns:
+            float: 미니배치의 손실 값(loss). (버퍼 데이터가 부족한 경우 None 반환)
+        """
+        # 1. 충분한 경험이 쌓이지 않았다면 학습하지 않음
         if len(self.buffer) < self.batch_size:
             return
 
         self.step_count += 1
 
+        # 2. 미니배치 샘플 추출
         user_states, content_embs, rewards, next_info, dones = self.buffer.sample(
             self.batch_size
         )
         next_states, next_cands_embs = next_info
 
+        # 3. 텐서 변환
         us = torch.FloatTensor(np.array(user_states)).to(self.device)
         ce = torch.FloatTensor(np.array(content_embs)).to(self.device)
         rs = torch.FloatTensor(rewards).unsqueeze(1).to(self.device)
         ds = torch.FloatTensor(dones).unsqueeze(1).to(self.device)
 
+        # 4. Q(s, a) 계산
         q_sa = self.q_net(us, ce)
 
-        max_next_q_list: List[torch.Tensor] = []
-        # for-loop(각 샘플별)로 target_q_net 평가 (추후 배치 평가로 최적화 가능)
-        for ns, nxt in zip(next_states, next_cands_embs):
-            # nxt: Dict[str, List[List[float]]] - 모든 타입 후보 벡터 합치기
+        # 5. 다음 상태에서의 최대 Q값을 벡터화로 계산
+        flat_states, flat_cands, batch_indices = [], [], []
+        for i, (ns, nxt) in enumerate(zip(next_states, next_cands_embs)):
+            # nxt: Dict[str, List[List[float]]] - 모든 타입의 후보 임베딩 합치기
             all_embs = list(chain.from_iterable(nxt.values()))
-            if not all_embs:
-                # 후보가 없으면 0 보상
-                max_next_q_list.append(torch.tensor(0.0, device=self.device))
-                continue
-            usn = torch.FloatTensor(ns).unsqueeze(0).to(self.device)
-            usn_rep = usn.repeat(len(all_embs), 1)
-            cen = torch.FloatTensor(np.array(all_embs)).to(self.device)
-            with torch.no_grad():
-                qn = self.target_q_net(usn_rep, cen).squeeze(1)
-            max_next_q_list.append(qn.max())
-        max_nq = torch.stack(max_next_q_list).unsqueeze(1)
+            for cand in all_embs:
+                flat_states.append(ns)
+                flat_cands.append(cand)
+                batch_indices.append(i)
 
+        if flat_states:
+            # flat_states: (총 후보수, state_dim), flat_cands: (총 후보수, cand_dim)
+            flat_states_tensor = torch.FloatTensor(np.array(flat_states)).to(
+                self.device
+            )
+            flat_cands_tensor = torch.FloatTensor(np.array(flat_cands)).to(self.device)
+            with torch.no_grad():
+                q_flat = (
+                    self.target_q_net(flat_states_tensor, flat_cands_tensor)
+                    .squeeze(1)
+                    .cpu()
+                    .numpy()
+                )
+            batch_indices = np.array(batch_indices)
+            max_q_per_sample = []
+            for i in range(len(next_states)):
+                sample_qs = q_flat[batch_indices == i]
+                # 후보가 없으면 Q=0
+                max_q_per_sample.append(sample_qs.max() if len(sample_qs) > 0 else 0.0)
+            max_nq = torch.tensor(
+                max_q_per_sample, dtype=torch.float32, device=self.device
+            ).unsqueeze(1)
+        else:
+            max_nq = torch.zeros((len(next_states), 1), device=self.device)
+
+        # 6. 타겟 계산
         target = rs + self.gamma * max_nq * (1 - ds)
 
+        # 7. 손실 계산
         if self.loss_type == "mse":
             loss = F.mse_loss(q_sa, target)
         elif self.loss_type == "smooth_l1":
@@ -170,10 +198,12 @@ class DQNAgent(BaseAgent):
         else:
             raise ValueError(f"지원하지 않는 loss_type입니다: {self.loss_type}")
 
+        # 8. 역전파 및 파라미터 업데이트
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
 
+        # 9. 일정 주기로 타겟 네트워크 동기화
         if self.step_count % self.update_freq == 0:
             logging.info(
                 f"Step {self.step_count}: Loss = {loss.item()}, Epsilon = {self.epsilon:.4f}"

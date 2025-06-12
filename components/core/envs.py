@@ -10,7 +10,6 @@ import pandas as pd
 
 from components.core.base import BaseEnv
 from components.registry import register
-from components.database.db_utils import get_contents, get_user_logs, get_users
 from components.simulation.simulators import BaseResponseSimulator
 
 
@@ -33,6 +32,9 @@ class RecEnv(gym.Env, BaseEnv):
 
     def __init__(
         self,
+        contents_df: pd.DataFrame,
+        users_df: pd.DataFrame,
+        logs_with_type_df: pd.DataFrame,
         max_steps: int,
         top_k: int,
         embedder,
@@ -45,6 +47,9 @@ class RecEnv(gym.Env, BaseEnv):
         """RecEnv 환경을 초기화합니다.
 
         Args:
+            contents_df (pd.DataFrame): 사전에 로드된 전체 콘텐츠 데이터프레임.
+            users_df (pd.DataFrame): 사전에 로드된 전체 사용자 데이터프레임.
+            logs_with_type_df (pd.DataFrame): 콘텐츠 타입이 사전 병합된 전체 로그 데이터프레임.
             max_steps (int): 에피소드 당 최대 추천 횟수.
             top_k (int): 콘텐츠 추천 수.
             embedder: 사용자/콘텐츠 임베딩 객체.
@@ -71,20 +76,16 @@ class RecEnv(gym.Env, BaseEnv):
         self.response_simulator = response_simulator
         self.step_count = 0
 
-        # DB에서 DataFrame 로드
-        self._load_dataframes()
+        # DB에서 DataFrame 로드 -> 주입받는 방식으로 변경
+        self.all_users_df = users_df
+        self.all_user_logs_df = logs_with_type_df  # 사전 병합된 로그 사용
+        self.all_contents_df = contents_df
 
         # 사용자 정보 초기화
         self._init_user(user_id)
 
         # observation / action space 초기화
         self._init_spaces()
-
-    def _load_dataframes(self) -> None:
-        """DB에서 사용자 및 콘텐츠, 로그 DataFrame을 불러와 인스턴스 변수로 저장합니다."""
-        self.all_users_df = get_users()
-        self.all_user_logs_df = get_user_logs()
-        self.all_contents_df = get_contents()
 
     def _init_user(self, user_id: Optional[int]) -> None:
         """에피소드에 사용할 사용자 ID와 사용자 정보를 초기화합니다.
@@ -174,36 +175,45 @@ class RecEnv(gym.Env, BaseEnv):
     def _merge_logs_with_content_type(
         self, base_logs_df: pd.DataFrame, simulated_logs_list: List[Dict]
     ) -> pd.DataFrame:
-        """실제 로그와 시뮬레이션 로그를 병합한 후 콘텐츠 타입 정보를 병합합니다.
+        """실제 로그와 시뮬레이션 로그를 병합합니다. (콘텐츠 타입 병합은 이미 완료됨)
 
         Args:
             base_logs_df (pd.DataFrame): 원본 사용자 로그.
             simulated_logs_list (List[Dict]): 현재 에피소드의 시뮬레이션 로그 리스트.
 
         Returns:
-            pd.DataFrame: 콘텐츠 타입 정보가 병합된 전체 로그.
+            pd.DataFrame: 병합된 전체 로그.
         """
-        combined_logs_df = base_logs_df
-        if simulated_logs_list:
-            sim_logs_df = pd.DataFrame(simulated_logs_list)
-            combined_logs_df = pd.concat([base_logs_df, sim_logs_df], ignore_index=True)
-        if not combined_logs_df.empty and not self.all_contents_df.empty:
-            if "content_actual_type" not in combined_logs_df.columns:
-                combined_logs_df["content_actual_type"] = None
-            merged_df = pd.merge(
-                combined_logs_df,
+        if not simulated_logs_list:
+            return base_logs_df
+
+        sim_logs_df = pd.DataFrame(simulated_logs_list)
+        if sim_logs_df.empty:
+            return base_logs_df
+
+        # 신규 시뮬레이션 로그에만 type 정보 추가 (효율화)
+        if not self.all_contents_df.empty:
+            sim_logs_df = pd.merge(
+                sim_logs_df,
                 self.all_contents_df[["id", "type"]].rename(
                     columns={"id": "content_id", "type": "content_db_type"}
                 ),
                 on="content_id",
                 how="left",
             )
-            merged_df["content_actual_type"] = merged_df["content_actual_type"].fillna(
-                merged_df["content_db_type"]
-            )
-            merged_df.drop(columns=["content_db_type"], inplace=True)
-            return merged_df
-        return combined_logs_df
+            # 'content_actual_type'이 없을 경우를 대비해 추가
+            if "content_actual_type" not in sim_logs_df.columns:
+                sim_logs_df["content_actual_type"] = np.nan
+
+            sim_logs_df["content_actual_type"] = sim_logs_df[
+                "content_actual_type"
+            ].fillna(sim_logs_df["content_db_type"])
+            sim_logs_df.drop(columns=["content_db_type"], inplace=True)
+
+        if base_logs_df.empty:
+            return sim_logs_df
+
+        return pd.concat([base_logs_df, sim_logs_df], ignore_index=True)
 
     def _get_user_data_for_embedding(
         self, base_logs_df: pd.DataFrame, simulated_logs_list: List[Dict]
@@ -328,6 +338,12 @@ class RecEnv(gym.Env, BaseEnv):
         self.current_session_simulated_logs.clear()
         self._set_current_user_info(options.get("user_id", None))
 
+        # self.current_user_original_logs_df는 사전 병합된 all_user_logs_df에서 필터링
+        self.current_user_original_logs_df = self.all_user_logs_df[
+            self.all_user_logs_df["user_id"] == self.current_user_id
+        ].copy()
+
+        # Generate initial state
         user_initial_data = self._get_user_data_for_embedding(
             self.current_user_original_logs_df, []
         )

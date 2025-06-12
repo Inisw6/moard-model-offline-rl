@@ -5,11 +5,17 @@ import torch
 import logging
 import os
 import csv
+import pandas as pd
 from typing import List, Dict, Any
 from datetime import datetime
 
 from components.registry import make
-from components.database.db_utils import get_stock_names
+from components.database.db_utils import (
+    get_stock_names,
+    get_contents,
+    get_user_logs,
+    get_users,
+)
 from components.recommendation.rec_utils import (
     compute_all_q_values,
 )
@@ -84,10 +90,30 @@ class ExperimentRunner:
         self.set_seed(seed)
         cfg: Dict[str, Any] = self.cfg
 
-        # Embedder / CandidateGenerator / Reward
+        # 데이터 로딩 및 사전 처리 (최초 1회)
+        contents_df = get_contents()
+        users_df = get_users()
+        logs_df = get_user_logs()
+
+        # 로그 + 콘텐츠 type 사전 병합
+        if not logs_df.empty and not contents_df.empty:
+            logs_with_type_df = pd.merge(
+                logs_df,
+                contents_df[["id", "type"]].rename(
+                    columns={"id": "content_id", "type": "content_db_type"}
+                ),
+                on="content_id",
+                how="left",
+            )
+        else:
+            logs_with_type_df = logs_df
+
+        # Embedder / CandidateGenerator / Reward 초기화
         embedder = make(cfg["embedder"]["type"], **cfg["embedder"]["params"])
         candgen = make(
-            cfg["candidate_generator"]["type"], **cfg["candidate_generator"]["params"]
+            cfg["candidate_generator"]["type"],
+            **cfg["candidate_generator"]["params"],
+            contents_df=contents_df,  # 주입
         )
         reward_fn = make(cfg["reward_fn"]["type"], **cfg["reward_fn"]["params"])
 
@@ -118,6 +144,9 @@ class ExperimentRunner:
             candidate_generator=candgen,
             reward_fn=reward_fn,
             response_simulator=response_simulator,
+            contents_df=contents_df,
+            users_df=users_df,
+            logs_with_type_df=logs_with_type_df,
         )
 
         # 에이전트 생성

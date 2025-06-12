@@ -67,6 +67,7 @@ class QNetwork(nn.Module):
 =======
 
 
+
 class DuelingQNetwork(nn.Module):
     """Dueling 구조의 Q-Value 예측 네트워크.
 
@@ -134,6 +135,9 @@ class DuelingQNetwork(nn.Module):
         a = self.adv_stream(h)  # Advantage stream 결과
         # Dueling 구조의 Q-value 계산
         return v + (a - a.mean(dim=0, keepdim=True))
+<<<<<<< HEAD
 >>>>>>> 2688699 (feat: Dueling DQN 에이전트 추가)
 =======
 >>>>>>> 51d0e23 (feat: agent 및 q network 분리)
+=======
+>>>>>>> 2f03202 (feat: Dueling DQN 에이전트 추가)

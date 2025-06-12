@@ -13,6 +13,7 @@ from models.q_network import DuelingQNetwork
 from replay.replay_buffer import ReplayBuffer
 
 
+<<<<<<< HEAD
 @register("dqn")
 class DQNAgent(BaseAgent):
     """DQN 기반 추천 에이전트.
@@ -308,6 +309,8 @@ class DQNAgent(BaseAgent):
         logging.info(f"[DQNAgent] Checkpoint loaded from {path}")
 
 
+=======
+>>>>>>> 2f03202 (feat: Dueling DQN 에이전트 추가)
 @register("dueling_dqn")
 class DuelingDQNAgent(BaseAgent):
     """Dueling DQN 기반 추천 에이전트."""
@@ -367,6 +370,69 @@ class DuelingDQNAgent(BaseAgent):
             q_vals = self.q_net(us_rep, ce).squeeze(1)
         return int(torch.argmax(q_vals).item())
 
+<<<<<<< HEAD
+=======
+    def select_slate(
+        self,
+        state: List[float],
+        candidate_embs: Dict[str, List[List[float]]],
+        max_recs: int,
+    ) -> List[Tuple[str, int]]:
+        """
+        Epsilon-greedy를 통해 슬레이트 추천을 수행합니다.
+
+        Args:
+            state: 현재 상태 벡터 (List[float]).
+            candidate_embs: 콘텐츠 타입별 후보 임베딩, ex: {'news': [[...], ...], 'video': [[...], ...]}
+            max_recs: 추천할 전체 아이템 개수
+
+        Returns:
+            추천 슬레이트: List of (content_type, candidate_index)
+        """
+        all_candidates = []
+        for ctype, embs in candidate_embs.items():
+            for idx, _ in enumerate(embs):
+                all_candidates.append((ctype, idx))
+
+        if not all_candidates:
+            return []
+
+        # 탐험(Exploration)
+        if random.random() < self.epsilon:
+            sample_count = min(max_recs, len(all_candidates))
+            return random.sample(all_candidates, sample_count)
+
+        # 활용(Exploitation): 각 타입별로 Q값 계산
+        q_values_with_pos = []
+        state_tensor = torch.tensor(
+            state, dtype=torch.float32, device=self.device
+        ).unsqueeze(0)
+
+        # 평가 모드 설정
+        self.q_net.eval()
+
+        for ctype, embs in candidate_embs.items():
+            if not embs:
+                continue
+
+            cand_tensor = torch.tensor(embs, dtype=torch.float32, device=self.device)
+            state_rep = state_tensor.repeat(len(embs), 1)
+
+            with torch.no_grad():
+                q_vals = self.q_net(state_rep, cand_tensor).squeeze(1)
+
+            for i, q_val in enumerate(q_vals):
+                q_values_with_pos.append(((ctype, i), q_val.item()))
+
+        # 다시 학습 모드로 전환
+        self.q_net.train()
+
+        # Q값 기준으로 정렬하여 상위 max_recs개 선택
+        q_values_with_pos.sort(key=lambda x: x[1], reverse=True)
+        top_candidates = [item[0] for item in q_values_with_pos[:max_recs]]
+        return top_candidates
+
+>>>>>>> 2f03202 (feat: Dueling DQN 에이전트 추가)
     def store(
         self,
         user_state: List[float],
@@ -475,9 +541,12 @@ class DuelingDQNAgent(BaseAgent):
                 f"Step {self.step_count}: Loss = {loss.item()}, Epsilon = {self.epsilon:.4f}"
             )
             self.target_q_net.load_state_dict(self.q_net.state_dict())
+<<<<<<< HEAD
         return loss.item()
 
         return loss.item()
+=======
+>>>>>>> 2f03202 (feat: Dueling DQN 에이전트 추가)
 
     def decay_epsilon(self):
         """탐험률(epsilon)을 감소시킵니다."""

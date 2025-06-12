@@ -179,7 +179,7 @@ class DQNAgent(BaseAgent):
                 f"Step {self.step_count}: Loss = {loss.item()}, Epsilon = {self.epsilon:.4f}"
             )
             self.target_q_net.load_state_dict(self.q_net.state_dict())
-        print(loss)
+
         return loss.item()
 
     def decay_epsilon(self):

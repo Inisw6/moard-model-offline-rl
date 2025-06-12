@@ -6,7 +6,6 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 import logging
-from torch.optim import Adam
 
 from components.core.base import BaseAgent
 from components.registry import register

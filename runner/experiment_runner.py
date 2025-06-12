@@ -287,8 +287,16 @@ class ExperimentRunner:
                 # 에피소드 종료 후 Q-value 분산 계산
                 # todo: 여기 고려해야할거 같아요... 없는경우...
                 qvalue_variance = float("nan")
-                if qvalue_list:
+                # if qvalue_list:
+                #     qvalue_variance = np.var(qvalue_list)
+                # logging.info(
+                #     f"--- Q-value Variance (Episode {ep}): {qvalue_variance:.6f}"
+                # )
+
+                if len(qvalue_list) > 1:
                     qvalue_variance = np.var(qvalue_list)
+                else:
+                   qvalue_variance = 0.0  # 값이 1개면 분산은 0
                 logging.info(
                     f"--- Q-value Variance (Episode {ep}): {qvalue_variance:.6f}"
                 )

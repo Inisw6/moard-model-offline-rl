@@ -214,6 +214,7 @@ class DQNAgent(BaseAgent):
             self.target_q_net.load_state_dict(self.q_net.state_dict())
 
 <<<<<<< HEAD:components/agents/dqn_agent.py
+<<<<<<< HEAD:components/agents/dqn_agent.py
 =======
         return loss.item()
 
@@ -278,6 +279,8 @@ class DQNAgent(BaseAgent):
         return top_candidates
 
 >>>>>>> 2277ad3 (feat: Dueling DQN 에이전트 추가,):components/agents/agents.py
+=======
+>>>>>>> 7f155c4 (feat: pytorch 관련 평가, 학습 모드 적용 및 코드 일관화):components/agents/agents.py
     def decay_epsilon(self):
         """탐험률(epsilon)을 감소시킵니다."""
         self.epsilon = max(self.epsilon * self.epsilon_dec, self.epsilon_min)

@@ -33,7 +33,6 @@ class ExperimentRunner:
 
     Attributes:
         cfg (Dict[str, Any]): 실험 설정 전체 딕셔너리.
-        result_log_path (str): 실험 결과 로그 파일 경로.
     """
 
     def __init__(self, config_path: str = "config/experiment.yaml") -> None:
@@ -43,10 +42,6 @@ class ExperimentRunner:
             config_path (str): 실험 설정 파일 경로 (YAML).
         """
         self.cfg: Dict[str, Any] = yaml.safe_load(open(config_path))
-        # self.cfg = self._load_config(config_path)
-        self.result_log_path = self.cfg.get("experiment", {}).get(
-            "result_log_path", "experiment_results.log"
-        )
         logging.info("ExperimentRunner initialized.")
 
     # 추후 추가 예정
@@ -89,6 +84,19 @@ class ExperimentRunner:
         """
         self.set_seed(seed)
         cfg: Dict[str, Any] = self.cfg
+        exp_cfg = cfg["experiment"]
+
+        # --- 경로 설정 및 디렉토리 생성 ---
+        exp_name = exp_cfg.get("experiment_name", "default_exp")
+        
+        step_log_path = exp_cfg["step_log_path"].format(experiment_name=exp_name, seed=seed)
+        episode_log_path = exp_cfg["episode_log_path"].format(experiment_name=exp_name, seed=seed)
+        model_save_dir = exp_cfg["model_save_dir"].format(experiment_name=exp_name, seed=seed)
+        
+        os.makedirs(os.path.dirname(step_log_path), exist_ok=True)
+        os.makedirs(os.path.dirname(episode_log_path), exist_ok=True)
+        os.makedirs(model_save_dir, exist_ok=True)
+        # ------------------------------------
 
         # 데이터 로딩 및 사전 처리 (최초 1회)
         contents_df = get_contents()
@@ -315,7 +323,6 @@ class ExperimentRunner:
                 )
 
                 # 에피소드 종료 후 Q-value 분산 계산
-                # todo: 여기 고려해야할거 같아요... 없는경우...
                 qvalue_variance = float("nan")
                 if qvalue_list:
                     qvalue_variance = np.var(qvalue_list)
@@ -341,10 +348,8 @@ class ExperimentRunner:
                 )
 
                 if ep % 5 == 0:
-                    save_dir = "saved_models"
-                    os.makedirs(save_dir, exist_ok=True)
                     model_path = os.path.join(
-                        save_dir, f"dqn_model_seed{seed}_ep{ep}.pth"
+                        model_save_dir, f"dqn_model_ep{ep}.pth"
                     )
                     agent.save(model_path)
                     logging.info(f"Model saved to {model_path}")
@@ -353,38 +358,33 @@ class ExperimentRunner:
                 logging.error(f"Error in episode {ep}, seed {seed}: {e}", exc_info=True)
 
         # 최종 모델 저장
-        save_dir = "saved_models"
-        os.makedirs(save_dir, exist_ok=True)
-        final_model_path = os.path.join(save_dir, f"dqn_model_seed{seed}_final.pth")
+        final_model_path = os.path.join(model_save_dir, "dqn_model_final.pth")
         agent.save(final_model_path)
         logging.info(f"Final model saved to {final_model_path}")
 
-        # self.save_results(episode_metrics)
-        self.save_results(step_metrics)
+        self.save_results(step_metrics, step_log_path)
+        self.save_results(episode_metrics, episode_log_path)
 
-    def save_results(self, metrics: List[Dict[str, Any]]) -> None:
+    def save_results(self, metrics: List[Dict[str, Any]], csv_path: str) -> None:
         """실험 결과(metrics)를 CSV 파일로 저장합니다.
 
         Args:
             metrics (List[Dict[str, Any]]): 저장할 메트릭 리스트.
-                각 딕셔너리의 키가 CSV의 컬럼명(fieldnames)이 됩니다.
-
-        Notes:
-            - 로그 파일 경로(self.result_log_path)의 확장자를 .csv로 변경하여 저장합니다.
-            - 파일이 존재하지 않으면 헤더를 작성(writeheader)하고, 이후에는 이어쓰기 모드("a")로 기록합니다.
-            - metrics가 비어 있으면 아무 작업도 수행하지 않습니다.
+            csv_path (str): 결과를 저장할 CSV 파일 경로.
         """
-        csv_path = self.result_log_path.replace(".log", ".csv")
-        fieldnames = metrics[0].keys() if metrics else []
-        if not fieldnames:
+        if not metrics:
             return
+        
+        fieldnames = metrics[0].keys()
         write_header = not os.path.exists(csv_path)
+
         with open(csv_path, "a", newline="") as f:
             writer = csv.DictWriter(f, fieldnames=fieldnames)
             if write_header:
                 writer.writeheader()
             for row in metrics:
                 writer.writerow(row)
+        logging.info(f"Saved {len(metrics)} rows to {csv_path}")
 
     def run_all(self) -> None:
         """config에 정의된 모든 seed에 대해 실험을 실행합니다."""

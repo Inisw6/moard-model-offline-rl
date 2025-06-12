@@ -1,7 +1,7 @@
 env:
   type: rec_env
   params:
-    max_steps: 5
+    max_steps: 10
     top_k: 6
 
 response_simulator:
@@ -30,7 +30,7 @@ response_simulator:
   #       debug: true
 
 agent:
-  type: dqn
+  type: dueling_dqn
   params:
     lr: 0.001
     batch_size: 32
@@ -64,11 +64,14 @@ reward_fn:
   params: {}
 
 experiment:
+  experiment_name: "dqn_base"
   total_episodes: 10
   max_recommendations: 6
   max_stocks: 1
   seeds: [0]
-  result_log_path: "./data/experiment_results.log"
+  step_log_path: "data/logs/{experiment_name}/seed_{seed}/steps.csv"
+  episode_log_path: "data/logs/{experiment_name}/seed_{seed}/episodes.csv"
+  model_save_dir: "data/models/{experiment_name}/seed_{seed}"
 
 replay:
   capacity: 10000

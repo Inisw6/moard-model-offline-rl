@@ -127,12 +127,16 @@ class DQNAgent(BaseAgent):
         )
 
     def learn(self) -> float:
+<<<<<<< HEAD
         """리플레이 버퍼에서 샘플을 추출해 Q 네트워크를 한 번 업데이트합니다.
 
         Returns:
             float: 미니배치의 손실 값(loss). (버퍼 데이터가 부족한 경우 None 반환)
         """
         # 1. 충분한 경험이 쌓이지 않았다면 학습하지 않음
+=======
+        """리플레이 버퍼에서 샘플을 추출해 Q 네트워크를 업데이트합니다."""
+>>>>>>> a47643c (feat: 반환값 추가)
         if len(self.buffer) < self.batch_size:
             return
 

@@ -157,6 +157,9 @@ class ExperimentRunner:
         queries.extend(stock_names[:rem])
 
         episode_metrics = []
+        step_metrics = []
+
+        loss_ex = []
 
         for ep, query in enumerate(queries, start=1):
             qvalue_list = []
@@ -171,9 +174,9 @@ class ExperimentRunner:
                 total_reward = 0.0
                 rec_count = 0
                 emb_cache: Dict[Any, Any] = {}
-                loss = []
 
-                while not done:
+
+                while not done:                                                                                           
                     # 후보 임베딩 캐시
                     cand_dict: Dict[str, List[Any]] = env.get_candidates()
                     for ctype, cands in cand_dict.items():
@@ -257,10 +260,25 @@ class ExperimentRunner:
                             done,
                         )
                     # 에이전트 학습 -> 위치에 따라 다름, 지금은 6개 모두 추천 작업 진행 후 학습
-                    loss.append(agent.learn())
+                    loss=(agent.learn())
                     state = next_state
                     # ε 감소: 한 env.step 당 한 번만 적용
                     agent.decay_epsilon()
+
+                    step_metrics.append(
+                    {
+                        "seed": seed,
+                        "query": query,
+                        "total_reward": total_reward,
+                        "recommendations": rec_count,
+                        "clicks": info.get("total_clicks", 0),
+                        "click_ratio": (
+                            info.get("total_clicks", 0) / rec_count if rec_count else 0
+                        ),
+                        "epsilon": getattr(agent, "epsilon", float("nan")),
+                        "datetime": datetime.now().isoformat(),
+                        "loss" : loss if type(loss)==float else -1,
+                    })
 
                 logging.info(
                     f"--- Episode {ep} End. Agent Epsilon: {getattr(agent, 'epsilon', float('nan')):.3f} ---"
@@ -277,6 +295,7 @@ class ExperimentRunner:
                 print('loss', loss)
                 # 기존 메트릭 딕셔너리에 qvalue_variance값 추가가
                 # 평가용 메트릭스 저장
+
                 episode_metrics.append(
                     {
                         "seed": seed,
@@ -291,9 +310,9 @@ class ExperimentRunner:
                         "epsilon": getattr(agent, "epsilon", float("nan")),
                         "datetime": datetime.now().isoformat(),
                         "qvalue_variance": qvalue_variance,
-                        "loss" : sum(loss)/len(loss) if type(loss[0]) == float else 0
                     }
                 )
+
 
                 if ep % 5 == 0:
                     save_dir = "saved_models"
@@ -314,7 +333,8 @@ class ExperimentRunner:
         agent.save(final_model_path)
         logging.info(f"Final model saved to {final_model_path}")
 
-        self.save_results(episode_metrics)
+        # self.save_results(episode_metrics)
+        self.save_results(step_metrics)
 
     def save_results(self, metrics: List[Dict[str, Any]]) -> None:
         """실험 결과(metrics)를 CSV 파일로 저장합니다.

@@ -63,6 +63,7 @@ class QNetwork(nn.Module):
         x = torch.cat([user, content], dim=1)
         return self.net(x)  # [batch, 1]
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
 
 
@@ -134,3 +135,5 @@ class DuelingQNetwork(nn.Module):
         # Dueling 구조의 Q-value 계산
         return v + (a - a.mean(dim=0, keepdim=True))
 >>>>>>> 2688699 (feat: Dueling DQN 에이전트 추가)
+=======
+>>>>>>> 51d0e23 (feat: agent 및 q network 분리)

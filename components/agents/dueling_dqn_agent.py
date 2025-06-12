@@ -9,7 +9,7 @@ import logging
 
 from components.core.base import BaseAgent
 from components.registry import register
-from models.q_network import QNetwork, DuelingQNetwork
+from models.q_network import DuelingQNetwork
 from replay.replay_buffer import ReplayBuffer
 
 

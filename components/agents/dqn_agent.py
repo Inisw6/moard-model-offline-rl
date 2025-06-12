@@ -9,7 +9,7 @@ import logging
 
 from components.core.base import BaseAgent
 from components.registry import register
-from models.q_network import QNetwork, DuelingQNetwork
+from models.q_network import QNetwork
 from replay.replay_buffer import ReplayBuffer
 
 
@@ -321,6 +321,7 @@ class DQNAgent(BaseAgent):
         self.q_net.train()
         self.target_q_net.eval()
         logging.info(f"[DQNAgent] Checkpoint loaded from {path}")
+<<<<<<< HEAD
 <<<<<<< HEAD:components/agents/dqn_agent.py
 <<<<<<< HEAD:components/agents/dqn_agent.py
 =======
@@ -515,3 +516,5 @@ class DuelingDQNAgent(BaseAgent):
 >>>>>>> 8ad0422 (feat: pytorch 관련 평가, 학습 모드 적용 및 코드 일관화):components/agents/agents.py
 =======
 >>>>>>> 2277ad3 (feat: Dueling DQN 에이전트 추가,):components/agents/agents.py
+=======
+>>>>>>> 51d0e23 (feat: agent 및 q network 분리)

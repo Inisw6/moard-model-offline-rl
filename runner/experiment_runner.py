@@ -5,14 +5,12 @@ import torch
 import logging
 import os
 import csv
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any
 from datetime import datetime
 
 from components.registry import make
 from components.database.db_utils import get_stock_names
-from components.recommendation.rec_context import RecContextManager
 from components.recommendation.rec_utils import (
-    enforce_type_constraint,
     compute_all_q_values,
 )
 from components.simulation.simulators import (
@@ -86,13 +84,12 @@ class ExperimentRunner:
         self.set_seed(seed)
         cfg: Dict[str, Any] = self.cfg
 
-        # Embedder / CandidateGenerator / Reward / Context 초기화
+        # Embedder / CandidateGenerator / Reward
         embedder = make(cfg["embedder"]["type"], **cfg["embedder"]["params"])
         candgen = make(
             cfg["candidate_generator"]["type"], **cfg["candidate_generator"]["params"]
         )
         reward_fn = make(cfg["reward_fn"]["type"], **cfg["reward_fn"]["params"])
-        context = RecContextManager(cfg["env"]["params"]["cold_start"])
 
         # 사용자 반응 시뮬레이터 생성
         sim_cfg = cfg["response_simulator"]
@@ -120,7 +117,6 @@ class ExperimentRunner:
             embedder=embedder,
             candidate_generator=candgen,
             reward_fn=reward_fn,
-            context=context,
             response_simulator=response_simulator,
         )
 
@@ -190,9 +186,7 @@ class ExperimentRunner:
                                 emb_cache.get(c.get("id"), embedder.embed_content(c))
                                 for c in contents
                             ]
-                            candidate_embs[ctype] = [
-                                emb.tolist() for emb in embeddings
-                            ]
+                            candidate_embs[ctype] = [emb.tolist() for emb in embeddings]
                         else:
                             candidate_embs[ctype] = []
 

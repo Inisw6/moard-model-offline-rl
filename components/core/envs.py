@@ -22,8 +22,6 @@ class RecEnv(gym.Env, BaseEnv):
     RL 기반 추천 시스템 시뮬레이션을 위한 환경을 제공합니다.
 
     Attributes:
-        context: 추천 컨텍스트 관리자.
-        cold_start (int): 콜드스타트 상태 사용 여부.
         max_steps (int): 에피소드 당 최대 추천 횟수.
         top_k (int): 한 스텝에서 추천할 콘텐츠 개수.
         embedder: 사용자/콘텐츠 임베딩 객체.
@@ -35,13 +33,11 @@ class RecEnv(gym.Env, BaseEnv):
 
     def __init__(
         self,
-        cold_start: int,
         max_steps: int,
         top_k: int,
         embedder,
         candidate_generator,
         reward_fn,
-        context,
         response_simulator: BaseResponseSimulator,
         user_id: Optional[int] = None,
         debug: bool = False,
@@ -49,13 +45,11 @@ class RecEnv(gym.Env, BaseEnv):
         """RecEnv 환경을 초기화합니다.
 
         Args:
-            cold_start (int): 콜드스타트 상태 사용 여부.
             max_steps (int): 에피소드 당 최대 추천 횟수.
             top_k (int): 콘텐츠 추천 수.
             embedder: 사용자/콘텐츠 임베딩 객체.
             candidate_generator: 추천 후보군 생성 객체.
             reward_fn: 보상 함수 객체.
-            context: 추천 컨텍스트 관리자.
             response_simulator (BaseResponseSimulator): 사용자 반응 시뮬레이터.
             user_id (Optional[int], optional): 환경에 할당할 사용자 ID. None이면 임의 선택.
             debug (bool, optional): 디버깅 모드 활성화 여부.
@@ -65,12 +59,9 @@ class RecEnv(gym.Env, BaseEnv):
         assert embedder is not None, "Embedder must be provided"
         assert candidate_generator is not None, "Candidate generator must be provided"
         assert reward_fn is not None, "Reward function must be provided"
-        assert context is not None, "Context manager must be provided"
         assert response_simulator is not None, "Response simulator must be provided"
 
         # 속성 설정
-        self.context = context
-        self.cold_start = cold_start
         self.max_steps = max_steps
         self.top_k = top_k
         self.embedder = embedder
@@ -418,10 +409,7 @@ class RecEnv(gym.Env, BaseEnv):
         # 8) 에피소드 종료 판단
         done = self.step_count >= self.max_steps
 
-        # 9) 컨텍스트 매니저에도 한 스텝 진행 시그널 전달
-        self.context.step()
-
-        # 10) 최종 결과 반환
+        # 9) 최종 결과 반환
         info = {
             "all_responses": all_responses,
             "selected_contents": selected_contents,

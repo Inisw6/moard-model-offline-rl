@@ -113,16 +113,22 @@ def compute_all_q_values(
         return q_values
 
     # 2. 하나의 배치로 텐서 변환 및 Q-value 일괄 계산
-    state_tensor = torch.from_numpy(np.array(state)).float().to(agent.device)
+    state_tensor = torch.tensor(state, dtype=torch.float32, device=agent.device)
     state_rep = state_tensor.unsqueeze(0).repeat(len(all_content_embs), 1)
 
     # numpy 배열 리스트를 stack하여 텐서 생성
-    content_embs_tensor = torch.from_numpy(np.array(all_content_embs)).float().to(agent.device)
+    content_embs_tensor = torch.tensor(
+        all_content_embs, dtype=torch.float32, device=agent.device
+    )
 
+    # 평가 모드 설정
+    agent.q_net.eval()
     with torch.no_grad():
         all_q_out = agent.q_net(state_rep, content_embs_tensor).squeeze(1)
+    # 다시 학습 모드로 전환
+    agent.q_net.train()
 
-    all_q_list = all_q_out.cpu().numpy()
+    all_q_list = all_q_out.cpu().numpy().tolist()
 
     # 3. 계산된 Q-value를 다시 타입별로 분배
     type_map = list(cand_dict.keys())

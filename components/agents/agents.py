@@ -6,6 +6,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 import logging
+from torch.optim import Adam
 
 from components.core.base import BaseAgent
 from components.registry import register
@@ -68,8 +69,9 @@ class DQNAgent(BaseAgent):
         self.q_net = QNetwork(user_dim, content_dim).to(self.device)
         self.target_q_net = QNetwork(user_dim, content_dim).to(self.device)
         self.target_q_net.load_state_dict(self.q_net.state_dict())
+        self.target_q_net.eval()
 
-        self.optimizer = torch.optim.Adam(self.q_net.parameters(), lr=lr)
+        self.optimizer = Adam(self.q_net.parameters(), lr=lr)
         self.buffer = ReplayBuffer(capacity=capacity)
 
         self.gamma = gamma
@@ -143,16 +145,16 @@ class DQNAgent(BaseAgent):
         )
         next_states, next_cands_embs = next_info
 
-        # 3. 텐서 변환
-        us = torch.FloatTensor(np.array(user_states)).to(self.device)
-        ce = torch.FloatTensor(np.array(content_embs)).to(self.device)
-        rs = torch.FloatTensor(rewards).unsqueeze(1).to(self.device)
-        ds = torch.FloatTensor(dones).unsqueeze(1).to(self.device)
+        # 3. 텐서 변환 (dtype과 device를 한 번에 지정)
+        us = torch.tensor(user_states, dtype=torch.float32, device=self.device)
+        ce = torch.tensor(content_embs, dtype=torch.float32, device=self.device)
+        rs = torch.tensor(rewards, dtype=torch.float32, device=self.device).unsqueeze(1)
+        ds = torch.tensor(dones, dtype=torch.float32, device=self.device).unsqueeze(1)
 
-        # 4. Q(s, a) 계산
+        # 4. Q(s, a) 계산 (q_net은 train 모드)
         q_sa = self.q_net(us, ce)
 
-        # 5. 다음 상태에서의 최대 Q값을 벡터화로 계산
+        # 5. 다음 상태에서의 최대 Q값을 벡터화로 계산 (target_q_net은 eval 모드)
         flat_states, flat_cands, batch_indices = [], [], []
         for i, (ns, nxt) in enumerate(zip(next_states, next_cands_embs)):
             # nxt: Dict[str, List[List[float]]] - 모든 타입의 후보 임베딩 합치기
@@ -164,10 +166,12 @@ class DQNAgent(BaseAgent):
 
         if flat_states:
             # flat_states: (총 후보수, state_dim), flat_cands: (총 후보수, cand_dim)
-            flat_states_tensor = torch.FloatTensor(np.array(flat_states)).to(
-                self.device
+            flat_states_tensor = torch.tensor(
+                flat_states, dtype=torch.float32, device=self.device
             )
-            flat_cands_tensor = torch.FloatTensor(np.array(flat_cands)).to(self.device)
+            flat_cands_tensor = torch.tensor(
+                flat_cands, dtype=torch.float32, device=self.device
+            )
             with torch.no_grad():
                 q_flat = (
                     self.target_q_net(flat_states_tensor, flat_cands_tensor)
@@ -248,6 +252,9 @@ class DQNAgent(BaseAgent):
             state, dtype=torch.float32, device=self.device
         ).unsqueeze(0)
 
+        # 평가 모드 설정
+        self.q_net.eval()
+
         for ctype, embs in candidate_embs.items():
             if not embs:
                 continue
@@ -260,6 +267,9 @@ class DQNAgent(BaseAgent):
 
             for i, q_val in enumerate(q_vals):
                 q_values_with_pos.append(((ctype, i), q_val.item()))
+
+        # 다시 학습 모드로 전환
+        self.q_net.train()
 
         # Q값 기준으로 정렬하여 상위 max_recs개 선택
         q_values_with_pos.sort(key=lambda x: x[1], reverse=True)

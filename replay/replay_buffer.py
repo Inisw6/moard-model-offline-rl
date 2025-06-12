@@ -1,12 +1,14 @@
 import random
-from typing import Any, List, Tuple
+from collections import deque
+from typing import Any, List, Tuple, Deque
 
 
 class ReplayBuffer:
-    """간단한 경험 리플레이 버퍼 클래스.
+    """경험을 저장하고 배치 샘플링을 지원하는 리플레이 버퍼 클래스.
 
-    Args:
-        capacity (int): 최대 저장 가능한 transition 개수.
+    Attributes:
+        capacity (int): 최대 저장 가능 transition 개수.
+        buffer (Deque): transition 저장소.
     """
 
     def __init__(self, capacity: int = 10000) -> None:
@@ -15,27 +17,33 @@ class ReplayBuffer:
         Args:
             capacity (int, optional): 최대 transition 개수. 기본값은 10000.
         """
-        self.capacity = capacity
-        self.buffer: List[Any] = []
+        self.capacity: int = capacity
+        self.buffer: Deque[
+            Tuple[
+                Tuple[Any, Any],  # (user_state, content_emb)
+                float,  # reward
+                Tuple[Any, Any],  # (next_state, next_cands_embs)
+                bool,  # done
+            ]
+        ] = deque(maxlen=capacity)
 
     def push(
         self,
-        state_cont_pair: Tuple[Any, Any],
+        state_action_pair: Tuple[Any, Any],
         reward: float,
-        next_info: Tuple[Any, Any],
+        next_transition: Tuple[Any, Any],
         done: bool,
     ) -> None:
-        """transition(상태, 행동 결과 등)을 버퍼에 추가합니다.
+        """새 transition을 버퍼에 추가합니다.
 
         Args:
-            state_cont_pair (Tuple[Any, Any]): (user_state, content_emb)
+            state_action_pair (Tuple[Any, Any]): (user_state, content_emb)
             reward (float): 보상 값
-            next_info (Tuple[Any, Any]): (next_state, next_cands_embs)
+            next_transition (Tuple[Any, Any]): (next_state, next_cands_embs)
             done (bool): 에피소드 종료 여부
         """
-        if len(self.buffer) >= self.capacity:
-            self.buffer.pop(0)
-        self.buffer.append((state_cont_pair, reward, next_info, done))
+        # deque(maxlen=capacity)로 생성 시 자동으로 가장 오래된 항목이 제거됨
+        self.buffer.append((state_action_pair, reward, next_transition, done))
 
     def sample(
         self, batch_size: int
@@ -63,10 +71,17 @@ class ReplayBuffer:
                 f"Sample size {batch_size} greater than buffer size {len(self.buffer)}"
             )
         batch = random.sample(self.buffer, batch_size)
-        sc, r, ni, d = zip(*batch)
-        s, ce = zip(*sc)
-        ns, next_embs = zip(*ni)
-        return list(s), list(ce), list(r), (list(ns), list(next_embs)), list(d)
+        state_action_pairs, rewards, next_transitions, dones = zip(*batch)
+        user_states, content_embs = zip(*state_action_pairs)
+        next_states, next_cands_embs = zip(*next_transitions)
+
+        return (
+            list(user_states),
+            list(content_embs),
+            list(rewards),
+            (list(next_states), list(next_cands_embs)),
+            list(dones),
+        )
 
     def __len__(self) -> int:
         """현재 버퍼에 저장된 transition 개수를 반환합니다.

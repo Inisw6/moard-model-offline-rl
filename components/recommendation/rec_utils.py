@@ -75,38 +75,30 @@ def compute_all_q_values(
 ) -> Dict[str, List[float]]:
     """주어진 상태(state)와 후보 콘텐츠 딕셔너리(cand_dict)로 타입별 Q값 리스트를 계산합니다.
 
-    각 타입별 후보 콘텐츠에 대해 임베딩을 구해 Q-network로 Q값을 추론하며,
+    모든 타입의 후보 콘텐츠를 하나의 배치로 묶어 Q-network로 Q값을 일괄 추론합니다.
     emb_cache가 주어지면 임베딩 캐싱을 활용합니다.
 
     Args:
         state (Any): 현재 상태 벡터 (np.ndarray 등).
-        cand_dict (Dict[str, List[Dict[str, Any]]]):
-            타입별 후보 콘텐츠 딕셔너리.
-            예시: {
-                'youtube': [content0, content1, ...],
-                'blog':    [content0, content1, ...],
-                ...
-            }
+        cand_dict (Dict[str, List[Dict[str, Any]]]): 타입별 후보 콘텐츠 딕셔너리.
         embedder (Any): embed_content 메서드를 가진 임베딩 객체.
         agent (Any): q_net (Q-network)을 포함하고, device 속성을 가진 객체.
-        emb_cache (Optional[Dict[Any, Any]]):
-            콘텐츠 id → 임베딩을 저장하는 캐시(선택).
+        emb_cache (Optional[Dict[Any, Any]]): 콘텐츠 id → 임베딩을 저장하는 캐시(선택).
 
     Returns:
         Dict[str, List[float]]: 타입별 Q값 리스트.
-            예시: {
-                'youtube': [q0, q1, ...],
-                'blog':    [q0, q1, ...],
-                ...
-            }
     """
     import torch
 
-    q_values: Dict[str, List[float]] = {}
-    for ctype, contents in cand_dict.items():
-        content_embs = []
+    q_values: Dict[str, List[float]] = {ctype: [] for ctype in cand_dict.keys()}
+    all_content_embs = []
+    type_indices = []  # 각 임베딩이 어떤 타입에 속하는지 기록
+
+    # 1. 모든 후보 콘텐츠의 임베딩을 한 번에 수집
+    for type_idx, (ctype, contents) in enumerate(cand_dict.items()):
+        if not contents:
+            continue
         for c in contents:
-            # 각 콘텐츠마다 캐시 우선 조회
             cid = c.get("id")
             if emb_cache is not None and cid in emb_cache:
                 content_emb = emb_cache[cid]
@@ -114,17 +106,28 @@ def compute_all_q_values(
                 content_emb = embedder.embed_content(c)
                 if emb_cache is not None:
                     emb_cache[cid] = content_emb
-            content_embs.append(content_emb)
-        if not content_embs:
-            q_values[ctype] = []
-            continue
+            all_content_embs.append(content_emb)
+            type_indices.append(type_idx)
 
-        us = torch.FloatTensor(state).unsqueeze(0)
-        us_rep = us.repeat(len(content_embs), 1).to(agent.device)
-        ce = torch.stack([torch.FloatTensor(e) for e in content_embs]).to(agent.device)
-        with torch.no_grad():
-            q_out = agent.q_net(us_rep, ce).squeeze(1)
-        q_list = q_out.cpu().numpy().tolist()
-        q_values[ctype] = q_list
+    if not all_content_embs:
+        return q_values
+
+    # 2. 하나의 배치로 텐서 변환 및 Q-value 일괄 계산
+    state_tensor = torch.from_numpy(np.array(state)).float().to(agent.device)
+    state_rep = state_tensor.unsqueeze(0).repeat(len(all_content_embs), 1)
+
+    # numpy 배열 리스트를 stack하여 텐서 생성
+    content_embs_tensor = torch.from_numpy(np.array(all_content_embs)).float().to(agent.device)
+
+    with torch.no_grad():
+        all_q_out = agent.q_net(state_rep, content_embs_tensor).squeeze(1)
+
+    all_q_list = all_q_out.cpu().numpy()
+
+    # 3. 계산된 Q-value를 다시 타입별로 분배
+    type_map = list(cand_dict.keys())
+    for i, q_val in enumerate(all_q_list):
+        ctype = type_map[type_indices[i]]
+        q_values[ctype].append(q_val)
 
     return q_values

@@ -1,37 +1,36 @@
 env:
   type: rec_env
   params:
-    cold_start: 10
-    max_steps: 8
+    max_steps: 10
     top_k: 6
 
 response_simulator:
   # type: random # 또는 llm
   # params: {}
-  type: llm
-  params:
-    # 시뮬레이션 페르소나 설정 (1-100중 선택, null이면 랜덤)
-    persona_id: 5
-    # 페르소나 및 LLM 응답 정보 출력 여부
-    debug: true
-    # LLM 클라이언트 설정 (LLMResponseSimulator 사용 시에만 필요)
-    llm_simulator:
-      params:
-        # LLM 제공자 설정
-        provider: "openrouter"  # 'ollama', 'openai', 'openrouter' 중 선택
-        model: "deepseek/deepseek-r1-0528-qwen3-8b:free"
-        # API 설정
-        api_base: "https://openrouter.ai/api/v1" 
-        api_key: null  # OpenAI/OpenRouter API 키 (필요한 경우)
-        # 생성 파라미터
-        temperature: 0.7
-        top_p: 0.9
-        max_tokens: 1000
-        timeout: 30
-        debug: true
+  type: random
+  # params:
+  #   # 시뮬레이션 페르소나 설정 (1-100중 선택, null이면 랜덤)
+  #   persona_id: 5
+  #   # 페르소나 및 LLM 응답 정보 출력 여부
+  #   debug: true
+  #   # LLM 클라이언트 설정 (LLMResponseSimulator 사용 시에만 필요)
+  #   llm_simulator:
+  #     params:
+  #       # LLM 제공자 설정
+  #       provider: "openrouter"  # 'ollama', 'openai', 'openrouter' 중 선택
+  #       model: "deepseek/deepseek-r1-0528-qwen3-8b:free"
+  #       # API 설정
+  #       api_base: "https://openrouter.ai/api/v1" 
+  #       api_key: null  # OpenAI/OpenRouter API 키 (필요한 경우)
+  #       # 생성 파라미터
+  #       temperature: 0.7
+  #       top_p: 0.9
+  #       max_tokens: 1000
+  #       timeout: 30
+  #       debug: true
 
 agent:
-  type: dqn
+  type: dueling_dqn
   params:
     lr: 0.001
     batch_size: 32
@@ -65,11 +64,14 @@ reward_fn:
   params: {}
 
 experiment:
+  experiment_name: "dqn_base"
   total_episodes: 10
   max_recommendations: 6
   max_stocks: 1
   seeds: [0]
-  result_log_path: "./data/experiment_results.log"
+  step_log_path: "data/logs/{experiment_name}/seed_{seed}/steps.csv"
+  episode_log_path: "data/logs/{experiment_name}/seed_{seed}/episodes.csv"
+  model_save_dir: "data/models/{experiment_name}/seed_{seed}"
 
 replay:
   capacity: 10000

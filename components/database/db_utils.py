@@ -16,8 +16,6 @@ from sqlalchemy import (
 from sqlalchemy.orm import declarative_base, relationship, sessionmaker, Session
 from sqlalchemy.types import Enum as SAEnum
 
-# UUID 사용 시 PostgreSQL dialect
-# from sqlalchemy.dialects.postgresql import UUID  # SQLite는 UUID를 직접 지원하지 않음
 # SQLite 데이터베이스 설정
 DB_PATH: str = "./data/sample_recsys.db"
 DATABASE_URL = f"sqlite:///{DB_PATH}"
@@ -33,7 +31,6 @@ class User(Base):
 
     __tablename__ = "users"
     id = Column(BigInteger, primary_key=True, autoincrement=True)
-    # SQLite는 UUID 타입을 직접 지원하지 않으므로 CHAR(36) 또는 STRING으로 저장
     uuid = Column(String(36), default=lambda: str(uuid.uuid4()), unique=True)
 
     recommendations = relationship("Recommendation", back_populates="user")
@@ -126,7 +123,7 @@ class Recommendation(Base):
     user_logs = relationship("UserLog", back_populates="recommendation")
 
 
-# 중간 테이블 (다대다 관계) RecommendationContent 모델로 대체
+# 중간 테이블 (다대다 관계) RecommendationContent 모델
 class RecommendationContent(Base):
     """추천-콘텐츠(recommendation_contents) 중간 테이블 ORM 모델.
 

@@ -127,6 +127,7 @@ class DQNAgent(BaseAgent):
             (user_state, content_emb), reward, (next_state, next_cands_embs), done
         )
 
+<<<<<<< HEAD:components/agents/dqn_agent.py
     def learn(self) -> float:
 <<<<<<< HEAD
         """리플레이 버퍼에서 샘플을 추출해 Q 네트워크를 한 번 업데이트합니다.
@@ -138,6 +139,10 @@ class DQNAgent(BaseAgent):
 =======
         """리플레이 버퍼에서 샘플을 추출해 Q 네트워크를 업데이트합니다."""
 >>>>>>> a47643c (feat: 반환값 추가)
+=======
+    def learn(self) -> None:
+        """리플레이 버퍼에서 샘플을 추출해 Q 네트워크를 업데이트합니다."""
+>>>>>>> c91ba78 (feat: Dueling DQN 에이전트 추가,):components/agents/agents.py
         if len(self.buffer) < self.batch_size:
             return
 
@@ -220,6 +225,7 @@ class DQNAgent(BaseAgent):
 
 <<<<<<< HEAD:components/agents/dqn_agent.py
 <<<<<<< HEAD:components/agents/dqn_agent.py
+<<<<<<< HEAD:components/agents/dqn_agent.py
 =======
         return loss.item()
 
@@ -286,6 +292,8 @@ class DQNAgent(BaseAgent):
 >>>>>>> 2277ad3 (feat: Dueling DQN 에이전트 추가,):components/agents/agents.py
 =======
 >>>>>>> 7f155c4 (feat: pytorch 관련 평가, 학습 모드 적용 및 코드 일관화):components/agents/agents.py
+=======
+>>>>>>> c91ba78 (feat: Dueling DQN 에이전트 추가,):components/agents/agents.py
     def decay_epsilon(self):
         """탐험률(epsilon)을 감소시킵니다."""
         self.epsilon = max(self.epsilon * self.epsilon_dec, self.epsilon_min)

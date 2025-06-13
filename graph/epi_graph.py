@@ -2,7 +2,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 # CSV 로드
-df = pd.read_csv("./data/experiment_results.csv")
+df = pd.read_csv("./data/logs/dqn_base/seed_0/episodes.csv")
 
 fig, axes = plt.subplots(2, 2, figsize=(12, 10), sharex=True)
 window = 5  # 이동평균 윈도우

@@ -1,6 +1,8 @@
+import yaml
 import logging
 from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any
+import ast
 
 import numpy as np
 import pandas as pd
@@ -20,7 +22,7 @@ class WeightedUserEmbedder(BaseUserEmbedder):
         all_contents_df: Optional[object] = None,
     ) -> None:
         
-        self.cfg: Dict[str, Any] = yaml.safe_load(open(config_path))
+        self.cfg: Dict[str, Any] = yaml.safe_load(open("./config/experiment.yaml"))
         
         # 생성시 인자로 전달받은 DataFrame이 없다면 실제 DB에서 가져옴
         self.all_contents_df = (
@@ -59,27 +61,27 @@ class WeightedUserEmbedder(BaseUserEmbedder):
             return None
         
         weighted_embedding = []
-        print('000',user_logs)
 
         for _, row in user_logs.iterrows():
             content_id = row["content_id"]
-            print('111',content_id, type(content_id))
             timestamp = pd.to_datetime(row["timestamp"])
-            embeddings = (self.all_contents_df[self.all_contents_df["id"]==content_id]["embedding"]) 
-            print('222',embeddings, type(embeddings))
+            embeddings = (self.all_contents_df[self.all_contents_df["id"]==content_id]["embedding"])
+
             # embedding이 안되어있으면, 조건추가
-            if embeddings is None or not isinstance(embeddings, np.ndarray):
-                print('333',embeddings)
+            if embeddings is None or not isinstance(embeddings, pd.Series):
                 cfg: Dict[str, Any] = self.cfg
                 embedder = make(cfg["embedder"]["type"], **cfg["embedder"]["params"])
-                embeddings = embedder.embed_content(row)
-                
-            embeddings = np.ndarray(embeddings)
+                embeddings = embedder.embed_content(row) 
+            else:
+                embeddings = (embeddings.iloc[0])
+                embeddings = np.array(ast.literal_eval(embeddings))
+
 
             hours_diff = (current_time - timestamp).total_seconds() / 3600
             weight = self.time_decay_factor ** hours_diff
 
             weighted_embedding.append(embeddings * weight)
+
 
         weighted_embedding = np.mean(weighted_embedding, axis=0)
         

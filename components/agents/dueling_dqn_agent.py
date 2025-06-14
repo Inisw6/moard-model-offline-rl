@@ -169,10 +169,10 @@ class DuelingDQNAgent(BaseAgent):
         next_states, next_cands_embs = next_info
 
         # 3. 텐서 변환 (dtype과 device를 한 번에 지정)
-        us = torch.tensor(user_states, dtype=torch.float32, device=self.device)
-        ce = torch.tensor(content_embs, dtype=torch.float32, device=self.device)
-        rs = torch.tensor(rewards, dtype=torch.float32, device=self.device).unsqueeze(1)
-        ds = torch.tensor(dones, dtype=torch.float32, device=self.device).unsqueeze(1)
+        us = torch.tensor(np.array(user_states), dtype=torch.float32, device=self.device)
+        ce = torch.tensor(np.array(content_embs), dtype=torch.float32, device=self.device)
+        rs = torch.tensor(np.array(rewards), dtype=torch.float32, device=self.device).unsqueeze(1)
+        ds = torch.tensor(np.array(dones), dtype=torch.float32, device=self.device).unsqueeze(1)
 
         # 4. Q(s, a) 계산 (q_net은 train 모드)
         q_sa = self.q_net(us, ce)
@@ -190,10 +190,10 @@ class DuelingDQNAgent(BaseAgent):
         if flat_states:
             # flat_states: (총 후보수, state_dim), flat_cands: (총 후보수, cand_dim)
             flat_states_tensor = torch.tensor(
-                flat_states, dtype=torch.float32, device=self.device
+                np.array(flat_states), dtype=torch.float32, device=self.device
             )
             flat_cands_tensor = torch.tensor(
-                flat_cands, dtype=torch.float32, device=self.device
+                np.array(flat_cands), dtype=torch.float32, device=self.device
             )
             with torch.no_grad():
                 q_flat = (

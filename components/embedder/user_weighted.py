@@ -1,18 +1,17 @@
 import yaml
-import logging
-from datetime import datetime, timezone
-from typing import Optional, List, Dict, Any
+from typing import Any, Dict, Optional 
 import ast
 
 import numpy as np
 import pandas as pd
 from components.core.base import BaseUserEmbedder
-from components.database.db_utils import get_contents, get_user_logs
+from components.database.db_utils import get_contents
 from components.registry import register, make
 
 
 @register("weighted_user")
 class WeightedUserEmbedder(BaseUserEmbedder):
+    """시간 가중 평균을 이용한 사용자 임베딩 클래스."""
 
     def __init__(
         self,
@@ -21,6 +20,14 @@ class WeightedUserEmbedder(BaseUserEmbedder):
         max_logs: int = 10,
         all_contents_df: Optional[object] = None,
     ) -> None:
+        """WeightedUserEmbedder 초기화 함수.
+
+        Args:
+            user_dim (int): 사용자 임베딩 차원. 기본값은 300.
+            time_decay_factor (float): 시간 가중치 감소 계수. 기본값은 0.9.
+            max_logs (int): 최대 로그 수. 기본값은 10.
+            all_contents_df (Optional[object]): 콘텐츠 임베딩 데이터프레임 (없을 경우 DB에서 로드).
+        """
         
         self.cfg: Dict[str, Any] = yaml.safe_load(open("./config/experiment.yaml"))
         
@@ -38,14 +45,25 @@ class WeightedUserEmbedder(BaseUserEmbedder):
         self.user_dim = user_dim
 
     def output_dim(self) -> int:
-        """유저 임베딩 벡터의 차원을 반환합니다.
+        """임베딩 벡터의 출력 차원을 반환합니다.
 
         Returns:
-            int: 유저 임베딩 벡터의 차원.
+            int: 사용자 임베딩 벡터의 차원 수.
         """
         return self.user_dim
 
     def embed_user(self, user: dict) -> np.ndarray:
+        """사용자의 로그 기반 시간 가중 임베딩 벡터를 생성합니다.
+
+        Args:
+            user (dict): 사용자 정보와 로그를 포함한 딕셔너리. 
+                - user_info: {"id": 사용자 ID}
+                - recent_logs: [{"user_id", "content_id", "timestamp"}]
+                - current_time: datetime 객체
+
+        Returns:
+            np.ndarray: 시간 가중치가 적용된 사용자 임베딩 벡터.
+        """
 
         user_id = int(user.get("user_info")["id"])
         logs = user.get("recent_logs", [])
@@ -67,7 +85,7 @@ class WeightedUserEmbedder(BaseUserEmbedder):
             timestamp = pd.to_datetime(row["timestamp"])
             embeddings = (self.all_contents_df[self.all_contents_df["id"]==content_id]["embedding"])
 
-            # embedding이 안되어있으면, 조건추가
+            # 콘텐츠 임베딩이 없을 경우 임베딩 생성
             if embeddings is None or not isinstance(embeddings, pd.Series):
                 cfg: Dict[str, Any] = self.cfg
                 embedder = make(cfg["embedder"]["type"], **cfg["embedder"]["params"])
@@ -81,17 +99,13 @@ class WeightedUserEmbedder(BaseUserEmbedder):
             weight = self.time_decay_factor ** hours_diff
 
             weighted_embedding.append(embeddings * weight)
-
-
+        
         weighted_embedding = np.mean(weighted_embedding, axis=0)
         
-        # 길이 맞춰 패딩 또는 자르기
+        # 지정된 차원으로 패딩 또는 자르기
         if len(weighted_embedding) < self.user_dim:
             weighted_embedding = np.pad(weighted_embedding, (0, self.user_dim - len(weighted_embedding)), "constant")
         elif len(weighted_embedding) > self.user_dim:
             weighted_embedding = weighted_embedding[:self.user_dim]
 
         return weighted_embedding.astype(np.float32)
-    
-    def estimate_preference(self, state: np.ndarray) -> dict:
-        return {ctype: 1.0 / self.num_content_types for ctype in self.content_types}

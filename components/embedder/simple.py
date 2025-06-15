@@ -116,25 +116,6 @@ class SimpleUserEmbedder(BaseUserEmbedder):
 
         return vec.astype(np.float32)
 
-    def estimate_preference(self, state: np.ndarray) -> dict:
-        """유저 임베딩 벡터에서 콘텐츠 타입별 선호도를 추정합니다.
-
-        Args:
-            state (np.ndarray): 길이가 최소 2+N인 임베딩 벡터.
-
-        Returns:
-            dict: {타입명: 선호도(float)}.
-        """
-        if len(state) < 2 + self.num_content_types:
-            return {t: 0.0 for t in self.content_types}
-
-        # 2:2+N 구간이 타입별 비율 정보
-        type_prefs = state[2 : 2 + self.num_content_types]
-        return {
-            self.content_types[i]: float(type_prefs[i]) for i in range(len(type_prefs))
-        }
-
-
 @register("simple_content")
 class SimpleContentEmbedder(BaseContentEmbedder):
     """사전 임베딩 + 타입 원핫 기반 단순 콘텐츠 임베더.

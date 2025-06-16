@@ -15,9 +15,9 @@ from components.simulation.random_simulator import BaseResponseSimulator
 
 @register("rec_env")
 class RecEnv(gym.Env, BaseEnv):
-    """추천 환경(RecEnv).
+    """
+    Gymnasium 기반 추천 환경.
 
-    Gymnasium과 사용자 정의 BaseEnv를 함께 상속하여,
     RL 기반 추천 시스템 시뮬레이션을 위한 환경을 제공합니다.
 
     Attributes:
@@ -27,7 +27,10 @@ class RecEnv(gym.Env, BaseEnv):
         candidate_generator: 추천 후보군 생성 객체.
         reward_fn: 보상 함수 객체.
         response_simulator (BaseResponseSimulator): 사용자 반응 시뮬레이터.
-        step_count (int): 에피소드 내 현재 스텝 카운트.
+        step_count (int): 현재 스텝 카운트.
+        all_users_df (pd.DataFrame): 전체 사용자 데이터.
+        all_user_logs_df (pd.DataFrame): 전체 사용자 로그(타입 병합됨).
+        all_contents_df (pd.DataFrame): 전체 콘텐츠 데이터.
     """
 
     def __init__(
@@ -42,29 +45,27 @@ class RecEnv(gym.Env, BaseEnv):
         reward_fn,
         response_simulator: BaseResponseSimulator,
         user_id: Optional[int] = None,
-        debug: bool = False,
     ) -> None:
-        """RecEnv 환경을 초기화합니다.
+        """
+        RecEnv 초기화.
 
         Args:
-            contents_df (pd.DataFrame): 사전에 로드된 전체 콘텐츠 데이터프레임.
-            users_df (pd.DataFrame): 사전에 로드된 전체 사용자 데이터프레임.
-            logs_with_type_df (pd.DataFrame): 콘텐츠 타입이 사전 병합된 전체 로그 데이터프레임.
+            contents_df (pd.DataFrame): 전체 콘텐츠 데이터프레임.
+            users_df (pd.DataFrame): 전체 사용자 데이터프레임.
+            logs_with_type_df (pd.DataFrame): 타입 병합된 사용자 로그.
             max_steps (int): 에피소드 당 최대 추천 횟수.
-            top_k (int): 콘텐츠 추천 수.
+            top_k (int): 한 스텝에서 추천할 콘텐츠 수.
             embedder: 사용자/콘텐츠 임베딩 객체.
-            candidate_generator: 추천 후보군 생성 객체.
+            candidate_generator: 추천 후보 생성 객체.
             reward_fn: 보상 함수 객체.
             response_simulator (BaseResponseSimulator): 사용자 반응 시뮬레이터.
-            user_id (Optional[int], optional): 환경에 할당할 사용자 ID. None이면 임의 선택.
-            debug (bool, optional): 디버깅 모드 활성화 여부.
+            user_id (Optional[int]): 고정 사용자 ID, None이면 첫 사용자 사용.
         """
         super().__init__()
         # 인자 없으면 예외 발생
-        assert embedder is not None, "Embedder must be provided"
-        assert candidate_generator is not None, "Candidate generator must be provided"
-        assert reward_fn is not None, "Reward function must be provided"
-        assert response_simulator is not None, "Response simulator must be provided"
+        assert (
+            embedder and candidate_generator and reward_fn and response_simulator
+        ), "필수 컴포넌트를 모두 제공해야 합니다."
 
         # 속성 설정
         self.max_steps = max_steps
@@ -76,9 +77,9 @@ class RecEnv(gym.Env, BaseEnv):
         self.response_simulator = response_simulator
         self.step_count = 0
 
-        # DB에서 DataFrame 로드 -> 주입받는 방식으로 변경
+        # DataFrame 주입
         self.all_users_df = users_df
-        self.all_user_logs_df = logs_with_type_df  # 사전 병합된 로그 사용
+        self.all_user_logs_df = logs_with_type_df
         self.all_contents_df = contents_df
 
         # 사용자 정보 초기화
@@ -88,60 +89,49 @@ class RecEnv(gym.Env, BaseEnv):
         self._init_spaces()
 
     def _init_user(self, user_id: Optional[int]) -> None:
-        """에피소드에 사용할 사용자 ID와 사용자 정보를 초기화합니다.
+        """
+        현재 사용자와 관련 로그 초기화.
 
         Args:
             user_id (Optional[int]): 환경에 할당할 사용자 ID.
         """
-        self.current_user_original_logs_df = pd.DataFrame()
-        self.current_session_simulated_logs = []
-
-        if user_id is None:
-            if not self.all_users_df.empty:
-                self.current_user_id = self.all_users_df.iloc[0]["id"]
-            else:
-                self.current_user_id = -1
-                logging.warning("No users found in DB. Using dummy user_id = -1.")
+        self.current_session_simulated_logs: List[Dict] = []
+        if user_id is None and not self.all_users_df.empty:
+            self.current_user_id = int(self.all_users_df.iloc[0]["id"])
         else:
-            self.current_user_id = user_id
+            self.current_user_id = user_id if user_id is not None else -1
 
-        if self.current_user_id != -1 and not self.all_users_df.empty:
-            series = self.all_users_df[self.all_users_df["id"] == self.current_user_id]
-            if not series.empty:
-                self.current_user_info = series.iloc[0].to_dict()
+        if self.current_user_id != -1:
+            user_row = self.all_users_df.query("id == @self.current_user_id")
+            if not user_row.empty:
+                self.current_user_info = user_row.iloc[0].to_dict()
             else:
-                logging.warning(
-                    "User ID %d not found. Using dummy user_info.", self.current_user_id
-                )
-                self.current_user_info = {
-                    "id": self.current_user_id,
-                    "uuid": "dummy_user_not_found",
-                }
+                logging.warning("User ID %d not found.", self.current_user_id)
+                self.current_user_info = {"id": self.current_user_id, "uuid": "unknown"}
         else:
-            self.current_user_info = {"id": -1, "uuid": "dummy_user"}
+            self.current_user_info = {"id": -1, "uuid": "anonymous"}
 
     def _init_spaces(self) -> None:
-        """observation_space와 action_space를 정의합니다."""
+        """
+        observation_space와 action_space를 정의합니다.
+        """
         state_dim = self.embedder.output_dim()
         self._observation_space = spaces.Box(
             low=-np.inf, high=np.inf, shape=(state_dim,), dtype=np.float32
         )
 
-        MAX_CANDIDATE_INDEX = 24
+        max_type = len(getattr(self.embedder, "content_types", []))
+        max_index = 24
         self._action_space = spaces.Tuple(
             [
-                spaces.Tuple(
-                    (
-                        spaces.Discrete(len(self.embedder.content_types)),
-                        spaces.Discrete(MAX_CANDIDATE_INDEX),
-                    )
-                )
+                spaces.Tuple((spaces.Discrete(max_type), spaces.Discrete(max_index)))
                 for _ in range(self.top_k)
             ]
         )
 
     def _set_current_user_info(self, user_id: Optional[int]) -> None:
-        """사용자 ID를 기반으로 환경 내 현재 사용자 정보를 설정합니다.
+        """
+        사용자 ID를 기반으로 환경 내 현재 사용자 정보를 설정합니다.
 
         Args:
             user_id (Optional[int]): 환경에 할당할 사용자 ID.
@@ -270,23 +260,23 @@ class RecEnv(gym.Env, BaseEnv):
         Returns:
             Dict: user_logs 포맷의 단일 로그 엔트리.
         """
-        # 1) 콘텐츠 ID/타입 조회 (한 번만)
+        # 콘텐츠 ID/타입 조회 (한 번만)
         content_id = content["id"]
         content_type = content["type"]
 
-        # 2) 클릭 여부 플래그
+        # 클릭 여부 플래그
         is_click = event_type == "CLICK"
 
-        # 3) 체류 시간 결정
+        # 체류 시간 결정
         if dwell_time is None:
             time_seconds = random.randint(60, 600) if is_click else 0
         else:
             time_seconds = dwell_time
 
-        # 4) 클릭 확률 비율 산출
+        # 클릭 확률 비율 산출
         ratio = 1.0 if is_click else 0.1 + 0.8 * random.random()
 
-        # 5) 타임스탬프
+        # 타임스탬프
         timestamp = datetime.now(timezone.utc).isoformat()
 
         return {
@@ -301,7 +291,8 @@ class RecEnv(gym.Env, BaseEnv):
 
     @property
     def observation_space(self) -> spaces.Box:
-        """관찰(observation) 벡터의 공간 분포를 반환합니다.
+        """
+        관찰(observation) 벡터의 공간 분포를 반환합니다.
 
         Returns:
             spaces.Box: 상태 공간 객체.
@@ -310,7 +301,8 @@ class RecEnv(gym.Env, BaseEnv):
 
     @property
     def action_space(self) -> spaces.Tuple:
-        """행동(action) 공간 분포를 반환합니다.
+        """
+        행동(action) 공간 분포를 반환합니다.
 
         Returns:
             spaces.Tuple: 액션 공간 객체.

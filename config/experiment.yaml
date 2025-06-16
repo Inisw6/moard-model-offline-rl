@@ -7,27 +7,24 @@ env:
 response_simulator:
   # type: random # 또는 llm
   # params: {}
-  type: random
-  # params:
-  #   # 시뮬레이션 페르소나 설정 (1-100중 선택, null이면 랜덤)
-  #   persona_id: 5
-  #   # 페르소나 및 LLM 응답 정보 출력 여부
-  #   debug: true
-  #   # LLM 클라이언트 설정 (LLMResponseSimulator 사용 시에만 필요)
-  #   llm_simulator:
-  #     params:
-  #       # LLM 제공자 설정
-  #       provider: "openrouter"  # 'ollama', 'openai', 'openrouter' 중 선택
-  #       model: "deepseek/deepseek-r1-0528-qwen3-8b:free"
-  #       # API 설정
-  #       api_base: "https://openrouter.ai/api/v1" 
-  #       api_key: null  # OpenAI/OpenRouter API 키 (필요한 경우)
-  #       # 생성 파라미터
-  #       temperature: 0.7
-  #       top_p: 0.9
-  #       max_tokens: 1000
-  #       timeout: 30
-  #       debug: true
+  type: llm
+  params:
+    # 시뮬레이션 페르소나 설정 (1-100중 선택, null이면 랜덤)
+    persona_id: 5
+    debug: true
+    # LLM 클라이언트 설정 (LLMResponseSimulator 사용 시에만 필요)
+    llm_simulator:
+      params:
+        # 'ollama', 'openai', 'openrouter'
+        provider: "openrouter"  
+        model: "deepseek/deepseek-r1-0528-qwen3-8b:free"
+        api_base: "https://openrouter.ai/api/v1" 
+        api_key: null
+        temperature: 0.7
+        top_p: 0.9
+        max_tokens: 1000
+        timeout: 30
+        debug: true
 
 agent:
   type: dueling_dqn
@@ -39,20 +36,20 @@ agent:
     eps_decay: 0.995
     gamma: 0.99
     update_freq: 3
-    # 'mse' 또는 'smooth_l1' 중 선택
+    # 'mse', 'smooth_l1'
     loss_type: "smooth_l1"  
 
 embedder:
   type: simple_concat
   params:
     user_embedder:
-      type: simple_user
+      type: weighted_user
       params:
-        user_dim: 30
+        user_dim: 300
     content_embedder:
-      type: simple_content
+      type: doc2vec_content
       params:
-        content_dim: 5
+        content_dim: 300
 
 candidate_generator:
   type: query

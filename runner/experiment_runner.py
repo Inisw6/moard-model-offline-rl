@@ -1,13 +1,14 @@
-import yaml
-import random
-import numpy as np
-import torch
-import logging
 import os
 import csv
-import pandas as pd
-from typing import List, Dict, Any
+import logging
 from datetime import datetime
+from typing import List, Dict, Any
+
+import random
+import numpy as np
+import pandas as pd
+import torch
+import yaml
 
 from components.registry import make
 from components.database.db_utils import (
@@ -27,12 +28,13 @@ from components.simulation.llm_simu import LLMUserSimulator
 
 
 class ExperimentRunner:
-    """실험 전체 루프를 실행하는 클래스.
+    """
+    실험 전체 루프를 실행합니다.
 
-    YAML config를 읽어 각 실험을 seed별로 반복 수행합니다.
+    YAML 구성 파일에 정의된 대로 각 시드를 반복 수행합니다.
 
     Attributes:
-        cfg (Dict[str, Any]): 실험 설정 전체 딕셔너리.
+        cfg (Dict[str, Any]): 실험 설정을 담은 딕셔너리
     """
 
     def __init__(self, config_path: str = "config/experiment.yaml") -> None:
@@ -44,26 +46,12 @@ class ExperimentRunner:
         self.cfg: Dict[str, Any] = yaml.safe_load(open(config_path))
         logging.info("ExperimentRunner initialized.")
 
-    # 추후 추가 예정
-    # def _load_config(self, config_path: str) -> Dict[str, Any]:
-    #     try:
-    #         with open(config_path, "r") as f:
-    #             cfg = yaml.safe_load(f)
-    #         if not isinstance(cfg, dict):
-    #             raise ValueError("Config file does not contain a valid dict.")
-    #         return cfg
-    #     except FileNotFoundError:
-    #         logging.error(f"Config file not found: {config_path}")
-    #         raise
-    #     except yaml.YAMLError as e:
-    #         logging.error(f"YAML parsing error: {e}")
-    #         raise
-
     def set_seed(self, seed: int) -> None:
-        """전체 환경의 랜덤 시드를 고정합니다.
+        """
+        ExperimentRunner 객체를 초기화합니다.
 
         Args:
-            seed (int): 사용할 시드 값.
+            config_path (str): 실험 설정 YAML 파일 경로
         """
         os.environ["PYTHONHASHSEED"] = str(seed)
         random.seed(seed)
@@ -74,36 +62,42 @@ class ExperimentRunner:
         logging.info(f"Random seed set: {seed}")
 
     def run_single(self, seed: int) -> None:
-        """단일 실험 루프를 실행합니다. 모든 에피소드(episode)를 처리합니다.
+        """
+        단일 시드에 대해 모든 에피소드를 실행합니다.
 
         Args:
-            seed (int): 실험 reproducibility를 위한 랜덤 시드.
+            seed (int): 재현성을 위한 랜덤 시드
 
         Raises:
-            ValueError: 지원하지 않는 시뮬레이터 타입이거나, env.step() 반환값이 잘못된 경우.
+            ValueError: 지원하지 않는 시뮬레이터 타입이거나 env.step() 반환값이 올바르지 않은 경우
         """
         self.set_seed(seed)
         cfg: Dict[str, Any] = self.cfg
         exp_cfg = cfg["experiment"]
 
-        # --- 경로 설정 및 디렉토리 생성 ---
+        # 경로 설정 및 디렉토리 생성
         exp_name = exp_cfg.get("experiment_name", "default_exp")
-        
-        step_log_path = exp_cfg["step_log_path"].format(experiment_name=exp_name, seed=seed)
-        episode_log_path = exp_cfg["episode_log_path"].format(experiment_name=exp_name, seed=seed)
-        model_save_dir = exp_cfg["model_save_dir"].format(experiment_name=exp_name, seed=seed)
-        
+
+        step_log_path = exp_cfg["step_log_path"].format(
+            experiment_name=exp_name, seed=seed
+        )
+        episode_log_path = exp_cfg["episode_log_path"].format(
+            experiment_name=exp_name, seed=seed
+        )
+        model_save_dir = exp_cfg["model_save_dir"].format(
+            experiment_name=exp_name, seed=seed
+        )
+
         os.makedirs(os.path.dirname(step_log_path), exist_ok=True)
         os.makedirs(os.path.dirname(episode_log_path), exist_ok=True)
         os.makedirs(model_save_dir, exist_ok=True)
-        # ------------------------------------
 
-        # 데이터 로딩 및 사전 처리 (최초 1회)
+        # 데이터 로딩 및 사전 처리
         contents_df = get_contents()
         users_df = get_users()
         logs_df = get_user_logs()
 
-        # 로그 + 콘텐츠 type 사전 병합
+        # 로그 + 콘텐츠 type 병합
         if not logs_df.empty and not contents_df.empty:
             logs_with_type_df = pd.merge(
                 logs_df,
@@ -133,11 +127,11 @@ class ExperimentRunner:
         if sim_type == "random":
             response_simulator = RandomResponseSimulator(**sim_params)
         elif sim_type == "llm":
-            # 1. LLM 클라이언트(LLMUserSimulator) 생성
+            # LLM 클라이언트(LLMUserSimulator) 생성
             llm_client_cfg = sim_params.pop("llm_simulator")
             llm_client = LLMUserSimulator(**llm_client_cfg.get("params", {}))
 
-            # 2. LLMResponseSimulator 생성
+            # LLMResponseSimulator 생성
             response_simulator = LLMResponseSimulator(
                 llm_simulator=llm_client, **sim_params
             )
@@ -181,6 +175,7 @@ class ExperimentRunner:
             f"Selected {len(stock_names)} stocks for experiment: {stock_names}"
         )
 
+        # 쿼리에 랜덤성 추가
         queries = []
         cycles, rem = divmod(total_eps, len(stock_names))
         for _ in range(cycles):
@@ -192,6 +187,7 @@ class ExperimentRunner:
         episode_metrics = []
         step_metrics = []
 
+        # 쿼리별 에피소드 시작
         for ep, query in enumerate(queries, start=1):
             qvalue_list = []
             try:
@@ -297,6 +293,7 @@ class ExperimentRunner:
                     # 에이전트 학습 -> 위치에 따라 다름, 지금은 6개 모두 추천 작업 진행 후 학습
                     loss = agent.learn()
                     state = next_state
+
                     # ε 감소: 한 env.step 당 한 번만 적용
                     agent.decay_epsilon()
 
@@ -347,10 +344,9 @@ class ExperimentRunner:
                     }
                 )
 
+                # 에피소드 5개 진행마다 모델 파일 저장
                 if ep % 5 == 0:
-                    model_path = os.path.join(
-                        model_save_dir, f"dqn_model_ep{ep}.pth"
-                    )
+                    model_path = os.path.join(model_save_dir, f"dqn_model_ep{ep}.pth")
                     agent.save(model_path)
                     logging.info(f"Model saved to {model_path}")
 
@@ -366,15 +362,16 @@ class ExperimentRunner:
         self.save_results(episode_metrics, episode_log_path)
 
     def save_results(self, metrics: List[Dict[str, Any]], csv_path: str) -> None:
-        """실험 결과(metrics)를 CSV 파일로 저장합니다.
+        """
+        메트릭 리스트를 CSV 파일에 저장합니다.
 
         Args:
-            metrics (List[Dict[str, Any]]): 저장할 메트릭 리스트.
-            csv_path (str): 결과를 저장할 CSV 파일 경로.
+            metrics (List[Dict[str, Any]]): 저장할 메트릭 딕셔너리 리스트
+            csv_path (str): 결과를 append할 CSV 파일 경로
         """
         if not metrics:
             return
-        
+
         fieldnames = metrics[0].keys()
         write_header = not os.path.exists(csv_path)
 
@@ -387,7 +384,9 @@ class ExperimentRunner:
         logging.info(f"Saved {len(metrics)} rows to {csv_path}")
 
     def run_all(self) -> None:
-        """config에 정의된 모든 seed에 대해 실험을 실행합니다."""
+        """
+        설정된 모든 시드에 대해 실험을 실행합니다.
+        """
         seeds: List[int] = self.cfg["experiment"].get("seeds", [0])
         for s in seeds:
             try:
@@ -398,5 +397,4 @@ class ExperimentRunner:
 
 
 if __name__ == "__main__":
-    """main 엔트리포인트. 실험을 실행합니다."""
     ExperimentRunner().run_all()

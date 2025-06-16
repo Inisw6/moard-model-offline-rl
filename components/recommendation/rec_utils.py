@@ -113,7 +113,7 @@ def compute_all_q_values(
         return q_values
 
     # 2. 하나의 배치로 텐서 변환 및 Q-value 일괄 계산
-    state_tensor = torch.tensor(state, dtype=torch.float32, device=agent.device)
+    state_tensor = torch.tensor(np.array(state, dtype=np.float32), device=agent.device)
     state_rep = state_tensor.unsqueeze(0).repeat(len(all_content_embs), 1)
 
     # numpy 배열 리스트를 stack하여 텐서 생성

@@ -118,7 +118,7 @@ def compute_all_q_values(
 
     # numpy 배열 리스트를 stack하여 텐서 생성
     content_embs_tensor = torch.tensor(
-        all_content_embs, dtype=torch.float32, device=agent.device
+        np.array(all_content_embs), dtype=torch.float32, device=agent.device
     )
 
     # 평가 모드 설정

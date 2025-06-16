@@ -134,18 +134,6 @@ class BaseUserEmbedder(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def estimate_preference(self, state: np.ndarray) -> Dict[str, float]:
-        """임베딩 벡터에서 콘텐츠 타입별 선호도를 추정합니다.
-
-        Args:
-            state (np.ndarray): 사용자 임베딩 벡터.
-
-        Returns:
-            Dict[str, float]: 타입별 선호도 딕셔너리.
-        """
-        raise NotImplementedError
-
-    @abstractmethod
     def output_dim(self) -> int:
         """임베딩 벡터의 차원을 반환합니다.
 
@@ -216,17 +204,6 @@ class BaseEmbedder(ABC):
             np.ndarray: 임베딩 벡터.
         """
         return self.content_embedder.embed_content(content)
-
-    def estimate_preference(self, state: np.ndarray) -> Dict[str, float]:
-        """사용자 임베딩 벡터에서 선호도를 추정합니다.
-
-        Args:
-            state (np.ndarray): 사용자 임베딩 벡터.
-
-        Returns:
-            Dict[str, float]: 선호도 딕셔너리.
-        """
-        return self.user_embedder.estimate_preference(state)
 
     def output_dim(self) -> int:
         """유저 임베더의 출력 차원을 반환합니다.

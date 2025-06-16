@@ -2,7 +2,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 # CSV 파일 경로
-csv_path = 'data/experiment_results.csv'
+csv_path = './data/logs/dqn_base/seed_0/steps.csv'
 
 # CSV 로드
 df = pd.read_csv(csv_path)

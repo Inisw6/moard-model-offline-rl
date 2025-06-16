@@ -20,10 +20,8 @@ from components.database.db_utils import (
 from components.recommendation.rec_utils import (
     compute_all_q_values,
 )
-from components.simulation.simulators import (
-    RandomResponseSimulator,
-    LLMResponseSimulator,
-)
+from components.simulation.random_simulator import RandomResponseSimulator
+from components.simulation.llm_simulator import LLMResponseSimulator
 from components.simulation.llm_simu import LLMUserSimulator
 
 

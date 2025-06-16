@@ -10,7 +10,7 @@ import pandas as pd
 
 from components.core.base import BaseEnv
 from components.registry import register
-from components.simulation.simulators import BaseResponseSimulator
+from components.simulation.random_simulator import BaseResponseSimulator
 
 
 @register("rec_env")

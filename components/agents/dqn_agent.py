@@ -1,11 +1,11 @@
-import random
 from itertools import chain
+import logging
+import random
 from typing import Dict, List, Tuple
 
 import numpy as np
 import torch
 import torch.nn.functional as F
-import logging
 
 from components.core.base import BaseAgent
 from components.registry import register
@@ -15,7 +15,8 @@ from replay.replay_buffer import ReplayBuffer
 
 @register("dqn")
 class DQNAgent(BaseAgent):
-    """DQN 기반 추천 에이전트.
+    """
+    DQN 기반 추천 에이전트.
 
     Attributes:
         device (torch.device): 사용할 디바이스(CPU 또는 GPU).
@@ -48,7 +49,8 @@ class DQNAgent(BaseAgent):
         loss_type: str = "smooth_l1",
         device: str = "cpu",
     ) -> None:
-        """DQNAgent 생성자.
+        """
+        DQNAgent 생성자.
 
         Args:
             user_dim (int): 사용자 상태 임베딩 차원.
@@ -61,8 +63,8 @@ class DQNAgent(BaseAgent):
             gamma (float): 할인 계수.
             update_freq (int): 타겟 네트워크 업데이트 주기.
             capacity (int): 리플레이 버퍼 용량.
-            loss_type (str, optional): 손실 함수 종류 ('mse' 또는 'smooth_l1'). 기본값 'smooth_l1'.
-            device (str, optional): 사용할 디바이스 ('cpu' 또는 'cuda'). 기본값 'cpu'.
+            loss_type (str): 손실 함수 종류 ('mse' 또는 'smooth_l1').
+            device (str): 사용할 디바이스 ('cpu' 또는 'cuda').
         """
         self.device = torch.device("cuda" if torch.cuda.is_available() else device)
         self.q_net = QNetwork(user_dim, content_dim).to(self.device)
@@ -85,14 +87,15 @@ class DQNAgent(BaseAgent):
     def select_action(
         self, user_state: List[float], candidate_embs: List[List[float]]
     ) -> int:
-        """현재 상태에서 추천 콘텐츠(액션)를 선택합니다.
+        """
+        현재 상태에서 행동을 선택합니다 (ε-greedy).
 
         Args:
-            user_state (List[float]): 현재 사용자 상태 임베딩 벡터.
+            user_state (List[float]): 사용자 상태 벡터.
             candidate_embs (List[List[float]]): 후보 콘텐츠 임베딩 리스트.
 
         Returns:
-            int: 선택한 콘텐츠 인덱스.
+            int: 선택된 행동(콘텐츠 인덱스).
         """
         if random.random() < self.epsilon:
             return random.randrange(len(candidate_embs))
@@ -112,14 +115,15 @@ class DQNAgent(BaseAgent):
         next_cands_embs: Dict[str, List[List[float]]],
         done: bool,
     ) -> None:
-        """경험을 리플레이 버퍼에 저장합니다.
+        """
+        경험을 리플레이 버퍼에 저장합니다.
 
         Args:
             user_state (List[float]): 현재 상태 임베딩.
-            content_emb (List[float]): 액션에 해당하는 콘텐츠 임베딩.
+            content_emb (List[float]): 행동에 해당하는 콘텐츠 임베딩.
             reward (float): 보상.
             next_state (List[float]): 다음 상태 임베딩.
-            next_cands_embs (Dict[str, List[List[float]]]): 다음 상태에서의 후보군 임베딩 (타입별).
+            next_cands_embs (Dict[str, List[List[float]]]): 다음 상태의 후보군 임베딩.
             done (bool): 에피소드 종료 여부.
         """
         self.buffer.push(
@@ -127,28 +131,33 @@ class DQNAgent(BaseAgent):
         )
 
     def learn(self) -> float:
-        """리플레이 버퍼에서 샘플을 추출해 Q 네트워크를 업데이트합니다."""
+        """
+        미니배치를 학습하여 Q 네트워크를 업데이트합니다.
+
+        Returns:
+            float: 현재 학습 손실 값.
+        """
         if len(self.buffer) < self.batch_size:
             return
 
         self.step_count += 1
 
-        # 2. 미니배치 샘플 추출
+        # 미니배치 샘플 추출
         user_states, content_embs, rewards, next_info, dones = self.buffer.sample(
             self.batch_size
         )
         next_states, next_cands_embs = next_info
 
-        # 3. 텐서 변환 (dtype과 device를 한 번에 지정)
+        # 텐서 변환
         us = torch.tensor(user_states, dtype=torch.float32, device=self.device)
         ce = torch.tensor(content_embs, dtype=torch.float32, device=self.device)
         rs = torch.tensor(rewards, dtype=torch.float32, device=self.device).unsqueeze(1)
         ds = torch.tensor(dones, dtype=torch.float32, device=self.device).unsqueeze(1)
 
-        # 4. Q(s, a) 계산 (q_net은 train 모드)
+        # 현재 Q 값
         q_sa = self.q_net(us, ce)
 
-        # 5. 다음 상태에서의 최대 Q값을 벡터화로 계산 (target_q_net은 eval 모드)
+        # 다음 상태에서의 최대 Q값을 벡터화로 계산
         flat_states, flat_cands, batch_indices = [], [], []
         for i, (ns, nxt) in enumerate(zip(next_states, next_cands_embs)):
             # nxt: Dict[str, List[List[float]]] - 모든 타입의 후보 임베딩 합치기
@@ -185,10 +194,10 @@ class DQNAgent(BaseAgent):
         else:
             max_nq = torch.zeros((len(next_states), 1), device=self.device)
 
-        # 6. 타겟 계산
+        # 타겟 계산
         target = rs + self.gamma * max_nq * (1 - ds)
 
-        # 7. 손실 계산
+        # 손실 계산
         if self.loss_type == "mse":
             loss = F.mse_loss(q_sa, target)
         elif self.loss_type == "smooth_l1":
@@ -196,12 +205,12 @@ class DQNAgent(BaseAgent):
         else:
             raise ValueError(f"지원하지 않는 loss_type입니다: {self.loss_type}")
 
-        # 8. 역전파 및 파라미터 업데이트
+        # 역전파
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
 
-        # 9. 일정 주기로 타겟 네트워크 동기화
+        # 타겟 네트워크 업데이트
         if self.step_count % self.update_freq == 0:
             logging.info(
                 f"Step {self.step_count}: Loss = {loss.item()}, Epsilon = {self.epsilon:.4f}"
@@ -217,62 +226,57 @@ class DQNAgent(BaseAgent):
         max_recs: int,
     ) -> List[Tuple[str, int]]:
         """
-        Epsilon-greedy를 통해 슬레이트 추천을 수행합니다.
+        슬레이트 추천을 수행합니다 (ε-greedy).
 
         Args:
-            state: 현재 상태 벡터 (List[float]).
-            candidate_embs: 콘텐츠 타입별 후보 임베딩, ex: {'news': [[...], ...], 'video': [[...], ...]}
-            max_recs: 추천할 전체 아이템 개수
+            state (List[float]): 현재 상태 벡터.
+            candidate_embs (Dict[str, List[List[float]]]): 타입별 후보 임베딩.
+            max_recs (int): 추천할 아이템 최대 개수.
 
         Returns:
-            추천 슬레이트: List of (content_type, candidate_index)
+            List[Tuple[str, int]]: (콘텐츠 타입, 인덱스) 리스트.
         """
-        all_candidates = []
-        for ctype, embs in candidate_embs.items():
-            for idx, _ in enumerate(embs):
-                all_candidates.append((ctype, idx))
-
-        if not all_candidates:
+        all_cands = [
+            (t, i) for t, embs in candidate_embs.items() for i in range(len(embs))
+        ]
+        if not all_cands:
             return []
 
-        # 탐험(Exploration)
         if random.random() < self.epsilon:
-            sample_count = min(max_recs, len(all_candidates))
-            return random.sample(all_candidates, sample_count)
+            return random.sample(all_cands, min(max_recs, len(all_cands)))
 
-        # 활용(Exploitation): 각 타입별로 Q값 계산
-        q_values_with_pos = []
+        slate_scores = []
         state_tensor = torch.tensor(
             state, dtype=torch.float32, device=self.device
         ).unsqueeze(0)
-
+        self.q_net.eval()
         for ctype, embs in candidate_embs.items():
             if not embs:
                 continue
-
             cand_tensor = torch.tensor(embs, dtype=torch.float32, device=self.device)
-            state_rep = state_tensor.repeat(len(embs), 1)
-
+            reps = state_tensor.repeat(len(embs), 1)
             with torch.no_grad():
-                q_vals = self.q_net(state_rep, cand_tensor).squeeze(1)
+                q_vals = self.q_net(reps, cand_tensor).squeeze(1)
+            slate_scores.extend(
+                [((ctype, idx), q.item()) for idx, q in enumerate(q_vals)]
+            )
+        self.q_net.train()
 
-            for i, q_val in enumerate(q_vals):
-                q_values_with_pos.append(((ctype, i), q_val.item()))
-
-        # Q값 기준으로 정렬하여 상위 max_recs개 선택
-        q_values_with_pos.sort(key=lambda x: x[1], reverse=True)
-        top_candidates = [item[0] for item in q_values_with_pos[:max_recs]]
-        return top_candidates
+        slate_scores.sort(key=lambda x: x[1], reverse=True)
+        return [item for item, _ in slate_scores[:max_recs]]
 
     def decay_epsilon(self):
-        """탐험률(epsilon)을 감소시킵니다."""
+        """
+        탐험률(epsilon)을 감소시킵니다.
+        """
         self.epsilon = max(self.epsilon * self.epsilon_dec, self.epsilon_min)
 
     def save(self, path: str) -> None:
-        """에이전트의 상태를 파일로 저장합니다.
+        """
+        모델 상태를 체크포인트 파일로 저장합니다.
 
         Args:
-            path (str): 체크포인트 파일 경로.
+            path (str): 저장할 파일 경로.
         """
         checkpoint = {
             "q_net_state": self.q_net.state_dict(),
@@ -287,7 +291,8 @@ class DQNAgent(BaseAgent):
         logging.info(f"[DQNAgent] Checkpoint saved to {path}")
 
     def load(self, path: str) -> None:
-        """저장된 체크포인트 파일에서 에이전트의 상태를 복원합니다.
+        """
+        체크포인트에서 모델 상태를 복원합니다.
 
         Args:
             path (str): 체크포인트 파일 경로.

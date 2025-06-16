@@ -63,7 +63,7 @@ response_simulator:
       params:
         # LLM 제공자 설정: 'ollama', 'openai', 'openrouter' 중 선택
         provider: "openrouter"
-        model: "deepseek/deepseek-r1-0528-qwen3-8b:free"
+        model: "meta-llama/llama-3.3-70b-instruct"
         # API 설정
         api_base: "https://openrouter.ai/api/v1" 
         api_key: ""

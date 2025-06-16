@@ -1,13 +1,14 @@
-import yaml
-import random
-import numpy as np
-import torch
-import logging
 import os
 import csv
+import random
+import logging
+import yaml
+import torch
+import numpy as np
 import pandas as pd
-from typing import List, Dict, Any
+
 from datetime import datetime
+from typing import Any, Dict, List
 
 from components.registry import make
 from components.database.db_utils import (
@@ -16,54 +17,34 @@ from components.database.db_utils import (
     get_user_logs,
     get_users,
 )
-from components.recommendation.rec_utils import (
-    compute_all_q_values,
-)
-from components.simulation.simulators import (
-    RandomResponseSimulator,
-    LLMResponseSimulator,
-)
+from components.recommendation.rec_utils import compute_all_q_values
+from components.simulation.random_simulator import RandomResponseSimulator
+from components.simulation.llm_simulator import LLMResponseSimulator
 from components.simulation.llm_simu import LLMUserSimulator
 
 
 class ExperimentRunner:
-    """실험 전체 루프를 실행하는 클래스.
-
-    YAML config를 읽어 각 실험을 seed별로 반복 수행합니다.
+    """YAML 설정 파일을 기반으로 RL 추천 실험을 반복 실행합니다.
 
     Attributes:
-        cfg (Dict[str, Any]): 실험 설정 전체 딕셔너리.
+        cfg (Dict[str, Any]): 전체 실험 설정 딕셔너리.
     """
 
     def __init__(self, config_path: str = "config/experiment.yaml") -> None:
-        """ExperimentRunner 객체를 초기화합니다.
+        """ExperimentRunner 인스턴스를 초기화합니다.
 
         Args:
-            config_path (str): 실험 설정 파일 경로 (YAML).
+            config_path (str): YAML 설정 파일 경로.
         """
-        self.cfg: Dict[str, Any] = yaml.safe_load(open(config_path))
-        logging.info("ExperimentRunner initialized.")
-
-    # 추후 추가 예정
-    # def _load_config(self, config_path: str) -> Dict[str, Any]:
-    #     try:
-    #         with open(config_path, "r") as f:
-    #             cfg = yaml.safe_load(f)
-    #         if not isinstance(cfg, dict):
-    #             raise ValueError("Config file does not contain a valid dict.")
-    #         return cfg
-    #     except FileNotFoundError:
-    #         logging.error(f"Config file not found: {config_path}")
-    #         raise
-    #     except yaml.YAMLError as e:
-    #         logging.error(f"YAML parsing error: {e}")
-    #         raise
+        with open(config_path, "r") as f:
+            self.cfg: Dict[str, Any] = yaml.safe_load(f)
+        logging.info("ExperimentRunner initialized with config: %s", config_path)
 
     def set_seed(self, seed: int) -> None:
-        """전체 환경의 랜덤 시드를 고정합니다.
+        """모든 난수 생성기의 시드를 고정하여 재현성을 보장합니다.
 
         Args:
-            seed (int): 사용할 시드 값.
+            seed (int): 사용할 랜덤 시드 값.
         """
         os.environ["PYTHONHASHSEED"] = str(seed)
         random.seed(seed)
@@ -71,41 +52,39 @@ class ExperimentRunner:
         torch.manual_seed(seed)
         if torch.cuda.is_available():
             torch.cuda.manual_seed_all(seed)
-        logging.info(f"Random seed set: {seed}")
+        logging.info("Random seed set to %d", seed)
 
     def run_single(self, seed: int) -> None:
-        """단일 실험 루프를 실행합니다. 모든 에피소드(episode)를 처리합니다.
+        """단일 시드에 대해 전체 에피소드를 실행하고 결과를 저장합니다.
 
         Args:
-            seed (int): 실험 reproducibility를 위한 랜덤 시드.
+            seed (int): 실험 시드.
 
         Raises:
-            ValueError: 지원하지 않는 시뮬레이터 타입이거나, env.step() 반환값이 잘못된 경우.
+            ValueError: 지원하지 않는 시뮬레이터 타입 또는 env.step 반환값 오류 시.
         """
         self.set_seed(seed)
-        cfg: Dict[str, Any] = self.cfg
-        exp_cfg = cfg["experiment"]
-
-        # --- 경로 설정 및 디렉토리 생성 ---
+        exp_cfg = self.cfg["experiment"]
         exp_name = exp_cfg.get("experiment_name", "default_exp")
-        
-        step_log_path = exp_cfg["step_log_path"].format(experiment_name=exp_name, seed=seed)
-        episode_log_path = exp_cfg["episode_log_path"].format(experiment_name=exp_name, seed=seed)
-        model_save_dir = exp_cfg["model_save_dir"].format(experiment_name=exp_name, seed=seed)
-        
-        os.makedirs(os.path.dirname(step_log_path), exist_ok=True)
-        os.makedirs(os.path.dirname(episode_log_path), exist_ok=True)
-        os.makedirs(model_save_dir, exist_ok=True)
-        # ------------------------------------
 
-        # 데이터 로딩 및 사전 처리 (최초 1회)
+        # 로그/모델 저장 경로 준비
+        step_log = exp_cfg["step_log_path"].format(experiment_name=exp_name, seed=seed)
+        eps_log = exp_cfg["episode_log_path"].format(
+            experiment_name=exp_name, seed=seed
+        )
+        model_dir = exp_cfg["model_save_dir"].format(
+            experiment_name=exp_name, seed=seed
+        )
+        os.makedirs(os.path.dirname(step_log), exist_ok=True)
+        os.makedirs(os.path.dirname(eps_log), exist_ok=True)
+        os.makedirs(model_dir, exist_ok=True)
+
+        # 데이터 로드 및 전처리
         contents_df = get_contents()
         users_df = get_users()
         logs_df = get_user_logs()
-
-        # 로그 + 콘텐츠 type 사전 병합
         if not logs_df.empty and not contents_df.empty:
-            logs_with_type_df = pd.merge(
+            logs_with_type = pd.merge(
                 logs_df,
                 contents_df[["id", "type"]].rename(
                     columns={"id": "content_id", "type": "content_db_type"}
@@ -114,74 +93,55 @@ class ExperimentRunner:
                 how="left",
             )
         else:
-            logs_with_type_df = logs_df
+            logs_with_type = logs_df
 
-        # Embedder / CandidateGenerator / Reward 초기화
-        embedder = make(cfg["embedder"]["type"], **cfg["embedder"]["params"])
-        candgen = make(
-            cfg["candidate_generator"]["type"],
-            **cfg["candidate_generator"]["params"],
-            contents_df=contents_df,  # 주입
-        )
-        reward_fn = make(cfg["reward_fn"]["type"], **cfg["reward_fn"]["params"])
+        # 컴포넌트 생성
+        embedder = make(**self.cfg["embedder"])
+        candgen = make(**self.cfg["candidate_generator"], contents_df=contents_df)
+        reward_fn = make(**self.cfg["reward_fn"])
 
-        # 사용자 반응 시뮬레이터 생성
-        sim_cfg = cfg["response_simulator"]
-        sim_type = sim_cfg["type"]
-        sim_params = sim_cfg.get("params", {}).copy()
-
-        if sim_type == "random":
-            response_simulator = RandomResponseSimulator(**sim_params)
-        elif sim_type == "llm":
-            # 1. LLM 클라이언트(LLMUserSimulator) 생성
-            llm_client_cfg = sim_params.pop("llm_simulator")
-            llm_client = LLMUserSimulator(**llm_client_cfg.get("params", {}))
-
-            # 2. LLMResponseSimulator 생성
-            response_simulator = LLMResponseSimulator(
-                llm_simulator=llm_client, **sim_params
+        sim_cfg = self.cfg["response_simulator"]
+        if sim_cfg["type"] == "random":
+            response_sim = RandomResponseSimulator(**sim_cfg.get("params", {}))
+        elif sim_cfg["type"] == "llm":
+            llm_params = sim_cfg["params"].pop("llm_simulator", {}).get("params", {})
+            llm_client = LLMUserSimulator(**llm_params)
+            response_sim = LLMResponseSimulator(
+                llm_simulator=llm_client, **sim_cfg.get("params", {})
             )
         else:
-            raise ValueError(f"Unsupported simulator type: {sim_type}")
+            raise ValueError(f"Unsupported simulator type: {sim_cfg['type']}")
 
-        # 환경 생성
         env = make(
-            cfg["env"]["type"],
-            **cfg["env"]["params"],
+            **self.cfg["env"],
             embedder=embedder,
             candidate_generator=candgen,
             reward_fn=reward_fn,
-            response_simulator=response_simulator,
+            response_simulator=response_sim,
             contents_df=contents_df,
             users_df=users_df,
-            logs_with_type_df=logs_with_type_df,
+            logs_with_type_df=logs_with_type,
         )
 
-        # 에이전트 생성
         agent = make(
-            cfg["agent"]["type"],
+            **self.cfg["agent"],
             user_dim=embedder.user_dim,
             content_dim=embedder.content_dim,
-            capacity=cfg["replay"]["capacity"],
-            **cfg["agent"]["params"],
+            capacity=self.cfg["replay"]["capacity"],
         )
 
-        total_eps: int = cfg["experiment"]["total_episodes"]
-        max_recs: int = cfg["experiment"]["max_recommendations"]
-        max_stocks: int = cfg["experiment"].get("max_stocks", 89)
-
-        # 주식 이름 리스트 가져오기
-        stock_names: List[str] = get_stock_names()
+        # 실험 설정
+        total_eps = exp_cfg["total_episodes"]
+        max_recs = exp_cfg["max_recommendations"]
+        stock_names = get_stock_names()[
+            : exp_cfg.get("max_stocks", len(get_stock_names()))
+        ]
         if not stock_names:
-            raise ValueError("No stock names available in the database")
+            raise ValueError("No stock names available for queries")
+        logging.info("Using %d stocks: %s", len(stock_names), stock_names)
 
-        # max_stocks만큼만 종목 선택
-        stock_names = stock_names[:max_stocks]
-        logging.info(
-            f"Selected {len(stock_names)} stocks for experiment: {stock_names}"
-        )
-
-        queries = []
+        # 에피소드별 쿼리 리스트 생성
+        queries: List[str] = []
         cycles, rem = divmod(total_eps, len(stock_names))
         for _ in range(cycles):
             random.shuffle(stock_names)
@@ -189,147 +149,97 @@ class ExperimentRunner:
         random.shuffle(stock_names)
         queries.extend(stock_names[:rem])
 
-        episode_metrics = []
-        step_metrics = []
+        step_metrics: List[Dict[str, Any]] = []
+        episode_metrics: List[Dict[str, Any]] = []
 
+        # 에피소드 루프
         for ep, query in enumerate(queries, start=1):
-            qvalue_list = []
             try:
-                # 각 에피소드 시작 시 로그 출력
                 logging.info(
-                    f"\n--- Episode {ep}/{total_eps} (seed={seed}, query={query}) ---"
+                    "Episode %d/%d start (seed=%d, query=%s)",
+                    ep,
+                    total_eps,
+                    seed,
+                    query,
                 )
-
                 state, _ = env.reset(options={"query": query})
                 done = False
+                emb_cache: Dict[Any, Any] = {}
                 total_reward = 0.0
                 rec_count = 0
-                emb_cache: Dict[Any, Any] = {}
+                qvals_accum: List[float] = []
 
                 while not done:
-                    # 후보 임베딩 캐시
-                    cand_dict: Dict[str, List[Any]] = env.get_candidates()
+                    # 후보군 임베딩 캐싱
+                    cand_dict = env.get_candidates()
                     for ctype, cands in cand_dict.items():
-                        for cand in cands:
-                            cid = cand.get("id")
-                            if cid not in emb_cache:
-                                emb_cache[cid] = embedder.embed_content(cand)
+                        for c in cands:
+                            cid = c["id"]
+                            emb_cache.setdefault(cid, embedder.embed_content(c))
 
-                    # 에이전트의 select_slate를 통해 슬레이트 선택
-                    candidate_embs: Dict[str, List[List[float]]] = {}
-                    for ctype, contents in cand_dict.items():
-                        if contents:
-                            embeddings = [
-                                emb_cache.get(c.get("id"), embedder.embed_content(c))
-                                for c in contents
-                            ]
-                            candidate_embs[ctype] = [emb.tolist() for emb in embeddings]
-                        else:
-                            candidate_embs[ctype] = []
-
-                    enforce_list = agent.select_slate(
-                        state, candidate_embs, max_recs=max_recs
+                    # 슬레이트 선택
+                    slate = agent.select_slate(
+                        state,
+                        {
+                            t: [emb_cache[c["id"]].tolist() for c in lst]
+                            for t, lst in cand_dict.items()
+                        },
+                        max_recs=max_recs,
                     )
 
-                    # Q-value 계산 (로깅용)
+                    # Exploitation 시 Q-value 기록
                     if random.random() >= agent.epsilon:
-                        # Exploitation인 경우에만 Q-value 계산
-                        q_values: Dict[str, List[float]] = compute_all_q_values(
-                            state, cand_dict, embedder, agent, emb_cache=emb_cache
+                        qvals = compute_all_q_values(
+                            state, cand_dict, embedder, agent, emb_cache
                         )
-                        qvalue_list.extend(
-                            [q_values[t][idx] for t, idx in enforce_list]
-                        )
+                        qvals_accum.extend(qvals[t][i] for t, i in slate)
 
-                    # step 실행
-                    step_result = env.step(enforce_list)
-                    if not (
-                        isinstance(step_result, (tuple, list)) and len(step_result) == 5
-                    ):
-                        raise ValueError(
-                            "env.step must return a tuple or list of length 5: (next_state, reward, done, truncated, info)"
-                        )
+                    # 환경 단계 실행
+                    next_state, reward, done, _, info = env.step(slate)
+                    total_reward = reward
+                    rec_count += len(slate)
 
-                    next_state, total_reward, step_done, truncated, info = step_result
-                    done = step_done or truncated
-                    rec_count += len(enforce_list)
-
-                    logging.info(
-                        f"    Recommended {len(enforce_list)} contents → "
-                        f"total_reward={total_reward}, done={done}"
-                    )
-                    logging.info(
-                        f"    Clicks: {info.get('total_clicks', 0)}/{len(enforce_list)}"
-                    )
-
-                    # 계산 로직 한번만 실행
-                    next_cand_dict: Dict[str, List[Any]] = env.get_candidates()
-                    next_cembs: Dict[str, List[Any]] = {
-                        t: [
-                            emb_cache.get(c.get("id"), embedder.embed_content(c))
-                            for c in cs
-                        ]
-                        for t, cs in next_cand_dict.items()
+                    # 경험 저장 및 학습
+                    next_cands = env.get_candidates()
+                    next_embs = {
+                        t: [emb_cache[c["id"]] for c in lst]
+                        for t, lst in next_cands.items()
                     }
-
-                    # RL 학습 데이터 저장 및 학습
-                    for ctype, idx in enforce_list:
-                        cands = cand_dict.get(ctype, [])
-                        if idx < 0 or idx >= len(cands):
-                            continue
-
-                        selected = cands[idx]
-                        cid = selected.get("id")
-                        selected_emb = emb_cache[cid]
-
-                        individual_reward = info.get("individual_rewards", {}).get(
-                            int(selected.get("id")), 0.0
-                        )
-
+                    for ctype, idx in slate:
+                        selected = cand_dict[ctype][idx]
                         agent.store(
                             state,
-                            selected_emb,
-                            individual_reward,
+                            emb_cache[selected["id"]],
+                            info["individual_rewards"].get(int(selected["id"]), 0.0),
                             next_state,
-                            next_cembs,
+                            next_embs,
                             done,
                         )
-                    # 에이전트 학습 -> 위치에 따라 다름, 지금은 6개 모두 추천 작업 진행 후 학습
                     loss = agent.learn()
-                    state = next_state
-                    # ε 감소: 한 env.step 당 한 번만 적용
                     agent.decay_epsilon()
+                    state = next_state
 
                     step_metrics.append(
                         {
                             "seed": seed,
                             "query": query,
-                            "total_reward": total_reward,
+                            "episode": ep,
+                            "step_reward": reward,
                             "recommendations": rec_count,
                             "clicks": info.get("total_clicks", 0),
                             "click_ratio": (
                                 info.get("total_clicks", 0) / rec_count
                                 if rec_count
-                                else 0
+                                else 0.0
                             ),
-                            "epsilon": getattr(agent, "epsilon", float("nan")),
-                            "datetime": datetime.now().isoformat(),
-                            "loss": loss if type(loss) == float else -1,
+                            "epsilon": agent.epsilon,
+                            "loss": loss or -1.0,
+                            "timestamp": datetime.now().isoformat(),
                         }
                     )
 
-                logging.info(
-                    f"--- Episode {ep} End. Agent Epsilon: {getattr(agent, 'epsilon', float('nan')):.3f} ---"
-                )
-
-                # 에피소드 종료 후 Q-value 분산 계산
-                qvalue_variance = float("nan")
-                if qvalue_list:
-                    qvalue_variance = np.var(qvalue_list)
-                logging.info(
-                    f"--- Q-value Variance (Episode {ep}): {qvalue_variance:.6f}"
-                )
-
+                # 에피소드 종료 처리
+                qvar = float(np.var(qvals_accum)) if qvals_accum else float("nan")
                 episode_metrics.append(
                     {
                         "seed": seed,
@@ -339,64 +249,63 @@ class ExperimentRunner:
                         "recommendations": rec_count,
                         "clicks": info.get("total_clicks", 0),
                         "click_ratio": (
-                            info.get("total_clicks", 0) / rec_count if rec_count else 0
+                            info.get("total_clicks", 0) / rec_count
+                            if rec_count
+                            else 0.0
                         ),
-                        "epsilon": getattr(agent, "epsilon", float("nan")),
-                        "datetime": datetime.now().isoformat(),
-                        "qvalue_variance": qvalue_variance,
+                        "epsilon": agent.epsilon,
+                        "qvalue_variance": qvar,
+                        "timestamp": datetime.now().isoformat(),
                     }
                 )
 
-                if ep % 5 == 0:
-                    model_path = os.path.join(
-                        model_save_dir, f"dqn_model_ep{ep}.pth"
-                    )
-                    agent.save(model_path)
-                    logging.info(f"Model saved to {model_path}")
+                if ep % exp_cfg.get("save_interval", 5) == 0:
+                    path = os.path.join(model_dir, f"model_ep{ep}.pth")
+                    agent.save(path)
+                    logging.info("Saved checkpoint: %s", path)
 
-            except Exception as e:
-                logging.error(f"Error in episode {ep}, seed {seed}: {e}", exc_info=True)
+            except Exception:
+                logging.exception("Error in episode %d (seed=%d)", ep, seed)
 
-        # 최종 모델 저장
-        final_model_path = os.path.join(model_save_dir, "dqn_model_final.pth")
-        agent.save(final_model_path)
-        logging.info(f"Final model saved to {final_model_path}")
+        # 최종 저장
+        final_path = os.path.join(model_dir, "model_final.pth")
+        agent.save(final_path)
+        logging.info("Saved final model: %s", final_path)
 
-        self.save_results(step_metrics, step_log_path)
-        self.save_results(episode_metrics, episode_log_path)
+        self._save_csv(step_metrics, step_log)
+        self._save_csv(episode_metrics, eps_log)
 
-    def save_results(self, metrics: List[Dict[str, Any]], csv_path: str) -> None:
-        """실험 결과(metrics)를 CSV 파일로 저장합니다.
+    def _save_csv(self, data: List[Dict[str, Any]], path: str) -> None:
+        """메트릭 리스트를 CSV 파일로 저장합니다.
 
         Args:
-            metrics (List[Dict[str, Any]]): 저장할 메트릭 리스트.
-            csv_path (str): 결과를 저장할 CSV 파일 경로.
+            data (List[Dict[str, Any]]): 저장할 메트릭 딕셔너리 목록.
+            path (str): CSV 파일 경로.
         """
-        if not metrics:
+        if not data:
             return
-        
-        fieldnames = metrics[0].keys()
-        write_header = not os.path.exists(csv_path)
 
-        with open(csv_path, "a", newline="") as f:
+        fieldnames = list(data[0].keys())
+        write_header = not os.path.exists(path)
+        with open(path, "a", newline="") as f:
             writer = csv.DictWriter(f, fieldnames=fieldnames)
             if write_header:
                 writer.writeheader()
-            for row in metrics:
-                writer.writerow(row)
-        logging.info(f"Saved {len(metrics)} rows to {csv_path}")
+            writer.writerows(data)
+        logging.info("Wrote %d rows to %s", len(data), path)
 
     def run_all(self) -> None:
-        """config에 정의된 모든 seed에 대해 실험을 실행합니다."""
-        seeds: List[int] = self.cfg["experiment"].get("seeds", [0])
+        """설정된 모든 시드에 대해 run_single을 호출하여 실험을 수행합니다."""
+        seeds = self.cfg["experiment"].get("seeds", [0])
         for s in seeds:
             try:
                 self.run_single(s)
-            except Exception as e:
-                logging.error(f"Seed {s} experiment failed: {e}", exc_info=True)
-                continue
+            except Exception:
+                logging.exception("Experiment failed for seed %d", s)
 
 
 if __name__ == "__main__":
-    """main 엔트리포인트. 실험을 실행합니다."""
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s"
+    )
     ExperimentRunner().run_all()

@@ -1,11 +1,11 @@
-import random
 from itertools import chain
-from typing import Dict, List, Tuple
+import logging
+import random
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import torch
 import torch.nn.functional as F
-import logging
 
 from components.core.base import BaseAgent
 from components.registry import register
@@ -18,7 +18,7 @@ class DQNAgent(BaseAgent):
     """DQN 기반 추천 에이전트.
 
     Attributes:
-        device (torch.device): 사용할 디바이스(CPU 또는 GPU).
+        device (torch.device): 사용할 디바이스 (CPU 또는 GPU).
         q_net (QNetwork): Q 네트워크.
         target_q_net (QNetwork): 타겟 Q 네트워크.
         optimizer (torch.optim.Optimizer): 옵티마이저.
@@ -96,6 +96,7 @@ class DQNAgent(BaseAgent):
         """
         if random.random() < self.epsilon:
             return random.randrange(len(candidate_embs))
+
         us = torch.FloatTensor(user_state).unsqueeze(0).to(self.device)
         us_rep = us.repeat(len(candidate_embs), 1)
         ce = torch.FloatTensor(candidate_embs).to(self.device)
@@ -126,32 +127,33 @@ class DQNAgent(BaseAgent):
             (user_state, content_emb), reward, (next_state, next_cands_embs), done
         )
 
-    def learn(self) -> float:
-        """리플레이 버퍼에서 샘플을 추출해 Q 네트워크를 업데이트합니다."""
+    def learn(self) -> Optional[float]:
+        """리플레이 버퍼에서 샘플을 추출해 Q 네트워크를 업데이트합니다.
+
+        Returns:
+            Optional[float]: 업데이트된 손실 값. 배치가 부족하면 None을 반환합니다.
+        """
         if len(self.buffer) < self.batch_size:
-            return
+            return None
 
         self.step_count += 1
-
-        # 2. 미니배치 샘플 추출
+        # 배치 샘플 추출
         user_states, content_embs, rewards, next_info, dones = self.buffer.sample(
             self.batch_size
         )
         next_states, next_cands_embs = next_info
 
-        # 3. 텐서 변환 (dtype과 device를 한 번에 지정)
+        # 텐서 변환
         us = torch.tensor(user_states, dtype=torch.float32, device=self.device)
         ce = torch.tensor(content_embs, dtype=torch.float32, device=self.device)
         rs = torch.tensor(rewards, dtype=torch.float32, device=self.device).unsqueeze(1)
         ds = torch.tensor(dones, dtype=torch.float32, device=self.device).unsqueeze(1)
 
-        # 4. Q(s, a) 계산 (q_net은 train 모드)
         q_sa = self.q_net(us, ce)
 
-        # 5. 다음 상태에서의 최대 Q값을 벡터화로 계산 (target_q_net은 eval 모드)
+        # 최대 Q값을 벡터화로 계산
         flat_states, flat_cands, batch_indices = [], [], []
         for i, (ns, nxt) in enumerate(zip(next_states, next_cands_embs)):
-            # nxt: Dict[str, List[List[float]]] - 모든 타입의 후보 임베딩 합치기
             all_embs = list(chain.from_iterable(nxt.values()))
             for cand in all_embs:
                 flat_states.append(ns)
@@ -159,7 +161,6 @@ class DQNAgent(BaseAgent):
                 batch_indices.append(i)
 
         if flat_states:
-            # flat_states: (총 후보수, state_dim), flat_cands: (총 후보수, cand_dim)
             flat_states_tensor = torch.tensor(
                 flat_states, dtype=torch.float32, device=self.device
             )
@@ -177,7 +178,6 @@ class DQNAgent(BaseAgent):
             max_q_per_sample = []
             for i in range(len(next_states)):
                 sample_qs = q_flat[batch_indices == i]
-                # 후보가 없으면 Q=0
                 max_q_per_sample.append(sample_qs.max() if len(sample_qs) > 0 else 0.0)
             max_nq = torch.tensor(
                 max_q_per_sample, dtype=torch.float32, device=self.device
@@ -185,10 +185,10 @@ class DQNAgent(BaseAgent):
         else:
             max_nq = torch.zeros((len(next_states), 1), device=self.device)
 
-        # 6. 타겟 계산
+        # 타겟 계산
         target = rs + self.gamma * max_nq * (1 - ds)
 
-        # 7. 손실 계산
+        # 손실 계산
         if self.loss_type == "mse":
             loss = F.mse_loss(q_sa, target)
         elif self.loss_type == "smooth_l1":
@@ -196,12 +196,12 @@ class DQNAgent(BaseAgent):
         else:
             raise ValueError(f"지원하지 않는 loss_type입니다: {self.loss_type}")
 
-        # 8. 역전파 및 파라미터 업데이트
+        # 역전파 및 파라미터 업데이트
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
 
-        # 9. 일정 주기로 타겟 네트워크 동기화
+        # update_freq 마다 타겟 네트워크 동기화
         if self.step_count % self.update_freq == 0:
             logging.info(
                 f"Step {self.step_count}: Loss = {loss.item()}, Epsilon = {self.epsilon:.4f}"
@@ -216,20 +216,19 @@ class DQNAgent(BaseAgent):
         candidate_embs: Dict[str, List[List[float]]],
         max_recs: int,
     ) -> List[Tuple[str, int]]:
-        """
-        Epsilon-greedy를 통해 슬레이트 추천을 수행합니다.
+        """Epsilon-greedy를 통해 슬레이트 추천을 수행합니다.
 
         Args:
-            state: 현재 상태 벡터 (List[float]).
-            candidate_embs: 콘텐츠 타입별 후보 임베딩, ex: {'news': [[...], ...], 'video': [[...], ...]}
-            max_recs: 추천할 전체 아이템 개수
+            state (List[float]): 현재 상태 벡터.
+            candidate_embs (Dict[str, List[List[float]]]): 콘텐츠 타입별 후보 임베딩.
+            max_recs (int): 추천할 전체 아이템 개수.
 
         Returns:
-            추천 슬레이트: List of (content_type, candidate_index)
+            List[Tuple[str, int]]: 추천 슬레이트 (content_type, candidate_index).
         """
-        all_candidates = []
+        all_candidates: List[Tuple[str, int]] = []
         for ctype, embs in candidate_embs.items():
-            for idx, _ in enumerate(embs):
+            for idx in range(len(embs)):
                 all_candidates.append((ctype, idx))
 
         if not all_candidates:
@@ -241,7 +240,7 @@ class DQNAgent(BaseAgent):
             return random.sample(all_candidates, sample_count)
 
         # 활용(Exploitation): 각 타입별로 Q값 계산
-        q_values_with_pos = []
+        q_values_with_pos: List[Tuple[Tuple[str, int], float]] = []
         state_tensor = torch.tensor(
             state, dtype=torch.float32, device=self.device
         ).unsqueeze(0)
@@ -259,12 +258,10 @@ class DQNAgent(BaseAgent):
             for i, q_val in enumerate(q_vals):
                 q_values_with_pos.append(((ctype, i), q_val.item()))
 
-        # Q값 기준으로 정렬하여 상위 max_recs개 선택
         q_values_with_pos.sort(key=lambda x: x[1], reverse=True)
-        top_candidates = [item[0] for item in q_values_with_pos[:max_recs]]
-        return top_candidates
+        return [item[0] for item in q_values_with_pos[:max_recs]]
 
-    def decay_epsilon(self):
+    def decay_epsilon(self) -> None:
         """탐험률(epsilon)을 감소시킵니다."""
         self.epsilon = max(self.epsilon * self.epsilon_dec, self.epsilon_min)
 
@@ -297,7 +294,6 @@ class DQNAgent(BaseAgent):
         self.target_q_net.load_state_dict(checkpoint["target_net_state"])
         self.optimizer.load_state_dict(checkpoint["optimizer_state"])
         self.step_count = checkpoint.get("step_count", 0)
-        self.env_step_count = checkpoint.get("env_step_count", 0)
         self.epsilon = checkpoint.get("epsilon", self.epsilon)
         self.epsilon_min = checkpoint.get("epsilon_min", self.epsilon_min)
         self.epsilon_dec = checkpoint.get("epsilon_dec", self.epsilon_dec)

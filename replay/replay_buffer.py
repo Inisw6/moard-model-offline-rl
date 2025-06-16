@@ -1,6 +1,6 @@
 import random
 from collections import deque
-from typing import Any, List, Tuple, Deque
+from typing import Any, Deque, List, Tuple
 
 
 class ReplayBuffer:
@@ -42,7 +42,6 @@ class ReplayBuffer:
             next_transition (Tuple[Any, Any]): (next_state, next_cands_embs)
             done (bool): 에피소드 종료 여부
         """
-        # deque(maxlen=capacity)로 생성 시 자동으로 가장 오래된 항목이 제거됨
         self.buffer.append((state_action_pair, reward, next_transition, done))
 
     def sample(

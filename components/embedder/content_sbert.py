@@ -1,6 +1,6 @@
 import logging
 import re
-from typing import Optional
+from typing import Any, Dict, Optional
 
 import numpy as np
 from sentence_transformers import SentenceTransformer
@@ -9,92 +9,74 @@ from components.core.base import BaseContentEmbedder
 from components.database.db_utils import get_contents
 from components.registry import register
 
+# 모듈-레벨 캐시
+_sbert_model_singleton: Optional[SentenceTransformer] = None
+
+
+def get_sbert_model(model_name: str) -> SentenceTransformer:
+    """싱글톤 SBERT 모델 로더."""
+    global _sbert_model_singleton
+    if _sbert_model_singleton is None:
+        logging.info("SBERT 모델 '%s' 최초 로딩...", model_name)
+        _sbert_model_singleton = SentenceTransformer(model_name)
+    return _sbert_model_singleton
+
 
 @register("sbert_content")
 class SbertContentEmbedder(BaseContentEmbedder):
-    """SBERT 기반 텍스트 콘텐츠 임베더.
-
-    - 사전 학습된 SBERT(Sentence-BERT) 모델로 텍스트 기반 콘텐츠 임베딩.
-    - 기본 임베딩 차원은 768, 지정된 content_dim으로 패딩/잘림.
-    """
+    """SBERT 기반 텍스트 콘텐츠 임베더."""
 
     def __init__(
         self,
         content_dim: int = 768,
         model_name: str = "snunlp/KR-SBERT-V40K-klueNLI-augSTS",
-        all_contents_df: Optional[object] = None,  # 의존성 주입 가능
+        all_contents_df: Optional[Any] = None,
     ) -> None:
         """SbertContentEmbedder 생성자.
 
         Args:
-            content_dim (int): 출력 임베딩 차원 (SBERT 모델 차원과 다르면 자동 보정).
-            model_name (str): 사용할 SBERT 모델명 (HuggingFace 호환).
-            all_contents_df (Optional[pandas.DataFrame]): 외부 콘텐츠 DataFrame.
+            content_dim (int): 요청 임베딩 차원 (모델 차원과 다르면 무시).
+            model_name (str): SBERT 모델 이름.
+            all_contents_df (Optional[pd.DataFrame]): 외부 콘텐츠 DataFrame 주입.
         """
-        # SBERT 모델 로드
-        logging.info("SBERT 모델 '%s' 로딩 중...", model_name)
-        # todo: 모델 로드 부분 싱글톤으로 전환 가능
-        self.sbert_model = SentenceTransformer(model_name)
+        self.sbert_model = get_sbert_model(model_name)
         self.pretrained_dim = self.sbert_model.get_sentence_embedding_dimension()
 
-        # 요청 차원이 사전학습 차원과 다르면 사전학습 차원으로 설정
-        if content_dim == self.pretrained_dim:
-            self.content_dim = content_dim
-        else:
+        if content_dim != self.pretrained_dim:
             logging.warning(
-                "설정된 content_dim (%d) != SBERT pretrained_dim (%d). "
-                "pretrained_dim (%d) 사용합니다.",
+                "content_dim (%d) != pretrained_dim (%d). pretrained_dim 사용합니다.",
                 content_dim,
                 self.pretrained_dim,
-                self.pretrained_dim,
             )
-            self.content_dim = self.pretrained_dim
+        self.content_dim = self.pretrained_dim
 
-        # 의존성 주입된 DataFrame이 없다면 실제 DB에서 가져옴
         self.all_contents_df = (
             all_contents_df if all_contents_df is not None else get_contents()
         )
         if not self.all_contents_df.empty:
             self.content_types = self.all_contents_df["type"].unique().tolist()
         else:
-            self.content_types = ["youtube", "blog", "news"]
+            self.content_types = ["news", "blog", "youtube"]
 
     def output_dim(self) -> int:
-        """콘텐츠 임베딩 벡터의 차원을 반환합니다.
-
-        Returns:
-            int: 임베딩 벡터 차원.
-        """
+        """임베딩 벡터 차원 반환."""
         return self.content_dim
 
-    def embed_content(self, content: dict) -> np.ndarray:
-        """SBERT로 콘텐츠를 임베딩합니다.
+    def embed_content(self, content: Dict[str, Any]) -> np.ndarray:
+        """단일 콘텐츠를 SBERT로 임베딩."""
+        raw = f"{content.get('title','')} {content.get('description','')}"
+        text = re.sub(r"<.*?>", "", raw).strip()
 
-        Args:
-            content (dict): {"title": str, "description": str}
-
-        Returns:
-            np.ndarray: (content_dim,) 크기의 벡터.
-        """
-        # 제목과 설명을 합쳐서 HTML 태그 제거
-        raw_text = content.get("title", "") + content.get("description", "")
-        raw_text = re.sub(r"<.*?>", "", raw_text)
-
-        if raw_text == "":
-            # 빈 문자열일 경우 전부 0 벡터 반환
-            sbert_emb = np.zeros(self.pretrained_dim, dtype=np.float32)
-        else:
-            try:
-                # SBERT 모델로 텍스트 인코딩
-                sbert_emb = self.sbert_model.encode(
-                    [raw_text],
-                    show_progress_bar=False,
-                    convert_to_numpy=True,
-                    normalize_embeddings=False,
-                )[0]
-                sbert_emb = sbert_emb.astype(np.float32)
-            except Exception as e:
-                logging.warning("SBERT 추론 실패: %s", e)
-                sbert_emb = np.zeros(self.pretrained_dim, dtype=np.float32)
-
-        return sbert_emb
+        if not text:
+            return np.zeros(self.content_dim, dtype=np.float32)
+        try:
+            emb = self.sbert_model.encode(
+                [text],
+                show_progress_bar=False,
+                convert_to_numpy=True,
+                normalize_embeddings=False,
+            )[0].astype(np.float32)
+        except Exception as err:
+            logging.warning("SBERT 추론 실패: %s", err)
+            emb = np.zeros(self.content_dim, dtype=np.float32)
+        return emb

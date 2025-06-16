@@ -16,7 +16,7 @@ class BaseEnv(ABC):
         Returns:
             spaces.Space: 상태 공간 객체 (예: Box).
         """
-        raise NotImplementedError
+        pass
 
     @property
     @abstractmethod
@@ -26,35 +26,40 @@ class BaseEnv(ABC):
         Returns:
             spaces.Space: 행동 공간 객체 (예: Discrete, Tuple 등).
         """
-        raise NotImplementedError
+        pass
 
     @abstractmethod
     def reset(
-        self, seed: Optional[int] = None, options: Optional[Dict] = None
-    ) -> Tuple[np.ndarray, Dict]:
+        self, seed: Optional[int] = None, options: Optional[Dict[str, Any]] = None
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """에피소드 초기화 및 시작 상태를 반환합니다.
 
         Args:
-            seed (Optional[int], optional): 랜덤 시드.
-            options (Optional[Dict], optional): 추가 옵션.
+            seed (Optional[int], optional): 랜덤 시드. Defaults to None.
+            options (Optional[Dict[str, Any]], optional): 추가 옵션. Defaults to None.
 
         Returns:
-            Tuple[np.ndarray, Dict]: (초기 상태 벡터, info 딕셔너리)
+            Tuple[np.ndarray, Dict[str, Any]]: 초기 상태 벡터와 info 딕셔너리.
         """
-        raise NotImplementedError
+        pass
 
     @abstractmethod
-    def step(self, action: Any) -> Tuple[np.ndarray, float, bool, bool, Dict]:
-        """에피소드 초기화 및 시작 상태를 반환합니다.
+    def step(self, action: Any) -> Tuple[np.ndarray, float, bool, bool, Dict[str, Any]]:
+        """환경에 액션을 적용하고 다음 상태를 반환합니다.
 
         Args:
-            seed (Optional[int], optional): 랜덤 시드.
-            options (Optional[Dict], optional): 추가 옵션.
+            action (Any): 에이전트의 행동.
 
         Returns:
-            Tuple[np.ndarray, Dict]: (초기 상태 벡터, info 딕셔너리)
+            Tuple[
+                np.ndarray,  # next_state
+                float,       # reward
+                bool,        # terminated
+                bool,        # truncated
+                Dict[str, Any]  # info
+            ]: 스텝 결과 정보.
         """
-        raise NotImplementedError
+        pass
 
 
 class BaseAgent(ABC):
@@ -73,7 +78,7 @@ class BaseAgent(ABC):
         Returns:
             int: 선택한 후보 인덱스.
         """
-        raise NotImplementedError
+        pass
 
     @abstractmethod
     def store(
@@ -85,7 +90,7 @@ class BaseAgent(ABC):
         next_cands_embs: Dict[str, List[np.ndarray]],
         done: bool,
     ) -> None:
-        """(s, a_embedding, r, s', next_candidate_embeddings, done) 튜플을 버퍼에 저장합니다.
+        """경험을 리플레이 버퍼에 저장합니다.
 
         Args:
             user_state (np.ndarray): 상태 벡터.
@@ -95,12 +100,16 @@ class BaseAgent(ABC):
             next_cands_embs (Dict[str, List[np.ndarray]]): 다음 후보군 임베딩.
             done (bool): 에피소드 종료 여부.
         """
-        raise NotImplementedError
+        pass
 
     @abstractmethod
-    def learn(self) -> None:
-        """버퍼에서 샘플을 뽑아 Q-네트워크(혹은 정책)를 업데이트합니다."""
-        raise NotImplementedError
+    def learn(self) -> Optional[float]:
+        """버퍼에서 샘플을 추출해 정책 혹은 Q-네트워크를 업데이트합니다.
+
+        Returns:
+            Optional[float]: 업데이트 손실값, 또는 업데이트가 수행되지 않으면 None.
+        """
+        pass
 
     @abstractmethod
     def save(self, path: str) -> None:
@@ -109,7 +118,7 @@ class BaseAgent(ABC):
         Args:
             path (str): 저장 파일 경로.
         """
-        raise NotImplementedError
+        pass
 
     @abstractmethod
     def load(self, path: str) -> None:
@@ -118,7 +127,7 @@ class BaseAgent(ABC):
         Args:
             path (str): 저장 파일 경로.
         """
-        raise NotImplementedError
+        pass
 
 
 class BaseUserEmbedder(ABC):
@@ -126,21 +135,24 @@ class BaseUserEmbedder(ABC):
 
     @abstractmethod
     def embed_user(self, user: Dict[str, Any]) -> np.ndarray:
+        """사용자 정보를 임베딩 벡터로 변환합니다.
+
+        Args:
+            user (Dict[str, Any]): 사용자 정보 딕셔너리.
+
+        Returns:
+            np.ndarray: 길이 output_dim 벡터.
         """
-        사용자 정보 딕셔너리를 받아서 user_dim 길이 벡터로 변환.
-        예: {"user_info":..., "recent_logs":[...], "current_time":...}
-        return: np.ndarray (shape: [user_dim])
-        """
-        raise NotImplementedError
+        pass
 
     @abstractmethod
     def output_dim(self) -> int:
         """임베딩 벡터의 차원을 반환합니다.
 
         Returns:
-            int: 임베딩 벡터 차원(user_dim).
+            int: 임베딩 벡터 차원.
         """
-        raise NotImplementedError
+        pass
 
 
 class BaseContentEmbedder(ABC):
@@ -148,69 +160,51 @@ class BaseContentEmbedder(ABC):
 
     @abstractmethod
     def embed_content(self, content: Dict[str, Any]) -> np.ndarray:
-        """콘텐츠 정보를 벡터로 임베딩합니다.
+        """콘텐츠 정보를 임베딩합니다.
 
         Args:
             content (Dict[str, Any]): 콘텐츠 정보 딕셔너리.
 
         Returns:
-            np.ndarray: content_dim 크기의 벡터.
+            np.ndarray: 길이 output_dim 벡터.
         """
-        raise NotImplementedError
+        pass
 
     @abstractmethod
     def output_dim(self) -> int:
         """임베딩 벡터의 차원을 반환합니다.
 
         Returns:
-            int: 임베딩 벡터 차원(content_dim).
+            int: 임베딩 벡터 차원.
         """
-        raise NotImplementedError
+        pass
 
 
-class BaseEmbedder(ABC):
-    """유저 임베더와 콘텐츠 임베더를 조합하는 기본 클래스."""
+class BaseEmbedder:
+    """유저 및 콘텐츠 임베더를 조합하는 기본 클래스."""
 
     def __init__(
         self, user_embedder: BaseUserEmbedder, content_embedder: BaseContentEmbedder
     ):
-        """BaseEmbedder 생성자.
+        """생성자.
 
         Args:
-            user_embedder (BaseUserEmbedder): 사용자 임베더 객체.
-            content_embedder (BaseContentEmbedder): 콘텐츠 임베더 객체.
+            user_embedder (BaseUserEmbedder): 사용자 임베더 인스턴스.
+            content_embedder (BaseContentEmbedder): 콘텐츠 임베더 인스턴스.
         """
         self.user_embedder = user_embedder
         self.content_embedder = content_embedder
 
     def embed_user(self, user: Dict[str, Any]) -> np.ndarray:
-        """사용자 정보를 임베딩합니다.
-
-        Args:
-            user (Dict[str, Any]): 사용자 정보.
-
-        Returns:
-            np.ndarray: 임베딩 벡터.
-        """
+        """사용자 정보를 임베딩합니다."""
         return self.user_embedder.embed_user(user)
 
     def embed_content(self, content: Dict[str, Any]) -> np.ndarray:
-        """콘텐츠 정보를 임베딩합니다.
-
-        Args:
-            content (Dict[str, Any]): 콘텐츠 정보.
-
-        Returns:
-            np.ndarray: 임베딩 벡터.
-        """
+        """콘텐츠 정보를 임베딩합니다."""
         return self.content_embedder.embed_content(content)
 
     def output_dim(self) -> int:
-        """유저 임베더의 출력 차원을 반환합니다.
-
-        Returns:
-            int: 임베딩 차원.
-        """
+        """임베딩 차원을 반환합니다."""
         return self.user_embedder.output_dim()
 
 
@@ -221,15 +215,14 @@ class BaseCandidateGenerator(ABC):
     def get_candidates(
         self, state: Optional[np.ndarray]
     ) -> Dict[str, List[Dict[str, Any]]]:
-        """주어진 사용자 상태에서 각 타입별 후보 콘텐츠 목록을 반환합니다.
+        """주어진 상태에서 후보 콘텐츠를 생성합니다.
 
         Args:
-            state (Optional[np.ndarray]): 사용자 상태 임베딩.
+            state (Optional[np.ndarray]): 사용자 상태 벡터.
 
         Returns:
-            Dict[str, List[Dict[str, Any]]]: {타입: [콘텐츠 딕셔너리, ...], ...}
-        """
-        raise NotImplementedError
+            Dict[str, List[Dict[str, Any]]]: {타입: [콘텐츠 딕셔너리, ...]}."""
+        pass
 
 
 class BaseRewardFn(ABC):
@@ -237,32 +230,32 @@ class BaseRewardFn(ABC):
 
     @abstractmethod
     def calculate(self, content: Dict[str, Any], event_type: str = "VIEW") -> float:
-        """콘텐츠 정보와 이벤트 타입에 따라 보상값을 반환합니다.
+        """보상값을 계산합니다.
 
         Args:
             content (Dict[str, Any]): 콘텐츠 정보.
-            event_type (str, optional): 이벤트 타입("VIEW" 또는 "CLICK"). 기본값 "VIEW".
+            event_type (str, optional): 이벤트 타입. Defaults to "VIEW".
 
         Returns:
             float: 보상값.
         """
-        raise NotImplementedError
+        pass
 
 
 class BaseResponseSimulator(ABC):
-    """사용자 반응 시뮬레이터의 기본 클래스."""
+    """사용자 반응 시뮬레이터 기본 클래스."""
 
     @abstractmethod
     def simulate_responses(
-        self, selected_contents: List[Dict], context: Dict[str, Any]
+        self, selected_contents: List[Dict[str, Any]], context: Dict[str, Any]
     ) -> List[Dict[str, Any]]:
-        """주어진 콘텐츠에 대한 사용자 반응을 시뮬레이션합니다.
+        """사용자 반응을 시뮬레이션합니다.
 
         Args:
-            selected_contents (List[Dict]): 추천된 콘텐츠 리스트.
-            context (Dict[str, Any]): 시뮬레이션에 필요한 컨텍스트.
+            selected_contents (List[Dict[str, Any]]): 추천된 콘텐츠 리스트.
+            context (Dict[str, Any]): 시뮬레이션 컨텍스트.
 
         Returns:
-            List[Dict[str, Any]]: 각 콘텐츠에 대한 사용자 반응 리스트.
+            List[Dict[str, Any]]: 반응 리스트.
         """
-        raise NotImplementedError
+        pass

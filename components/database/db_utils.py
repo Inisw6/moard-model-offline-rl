@@ -1,7 +1,7 @@
 import uuid
+from typing import List
 
 import pandas as pd
-from typing import List
 from sqlalchemy import (
     BigInteger,
     Column,
@@ -30,6 +30,7 @@ class User(Base):
     """사용자(users) 테이블 ORM 모델."""
 
     __tablename__ = "users"
+
     id = Column(BigInteger, primary_key=True, autoincrement=True)
     uuid = Column(String(36), default=lambda: str(uuid.uuid4()), unique=True)
 
@@ -42,6 +43,7 @@ class StockInfo(Base):
     """종목(stock_info) 테이블 ORM 모델."""
 
     __tablename__ = "stock_info"
+
     id = Column(BigInteger, primary_key=True, autoincrement=True)
     code = Column(String(255))
     industry_detail = Column(String(255))
@@ -56,6 +58,7 @@ class SearchQuery(Base):
     """검색 쿼리(search_queries) 테이블 ORM 모델."""
 
     __tablename__ = "search_queries"
+
     id = Column(BigInteger, primary_key=True, autoincrement=True)
     searched_at = Column(DateTime)
     stock_info_id = Column(BigInteger, ForeignKey("stock_info.id"))
@@ -69,6 +72,7 @@ class Content(Base):
     """콘텐츠(contents) 테이블 ORM 모델."""
 
     __tablename__ = "contents"
+
     id = Column(BigInteger, primary_key=True, autoincrement=True)
     published_at = Column(DateTime)
     query_at = Column(DateTime)
@@ -100,6 +104,7 @@ class Recommendation(Base):
     """추천(recommendations) 테이블 ORM 모델."""
 
     __tablename__ = "recommendations"
+
     id = Column(BigInteger, primary_key=True, autoincrement=True)
     recommended_at = Column(DateTime)
     user_id = Column(BigInteger, ForeignKey("users.id"))
@@ -107,14 +112,14 @@ class Recommendation(Base):
     query = Column(String(255))
 
     user = relationship("User", back_populates="recommendations")
-    # recommendation_contents 테이블을 통해 Content와 다대다 관계 설정 (읽기 전용)
+    # recommendation_contents 테이블을 통해 Content와 다대다 관계 설정
     contents = relationship(
         "Content",
         secondary="recommendation_contents",
         back_populates="recommendations",
         viewonly=True,
     )
-    # RecommendationContent 연관 객체에 대한 일대다 관계 (쓰기 가능)
+    # RecommendationContent 연관 객체에 대한 일대다 관계
     content_links = relationship(
         "RecommendationContent",
         back_populates="recommendation",
@@ -123,7 +128,6 @@ class Recommendation(Base):
     user_logs = relationship("UserLog", back_populates="recommendation")
 
 
-# 중간 테이블 (다대다 관계) RecommendationContent 모델
 class RecommendationContent(Base):
     """추천-콘텐츠(recommendation_contents) 중간 테이블 ORM 모델.
 
@@ -131,6 +135,7 @@ class RecommendationContent(Base):
     """
 
     __tablename__ = "recommendation_contents"
+
     content_id = Column(BigInteger, ForeignKey("contents.id"), primary_key=True)
     recommendation_id = Column(
         BigInteger, ForeignKey("recommendations.id"), primary_key=True
@@ -145,6 +150,7 @@ class StockLog(Base):
     """종목 조회 이력(stock_logs) 테이블 ORM 모델."""
 
     __tablename__ = "stock_logs"
+
     id = Column(BigInteger, primary_key=True, autoincrement=True)
     user_id = Column(BigInteger, ForeignKey("users.id"), nullable=False)
     viewed_at = Column(DateTime, nullable=False)
@@ -157,6 +163,7 @@ class UserLog(Base):
     """사용자 로그(user_logs) 테이블 ORM 모델."""
 
     __tablename__ = "user_logs"
+
     id = Column(BigInteger, primary_key=True, autoincrement=True)
     content_id = Column(BigInteger, ForeignKey("contents.id"), nullable=False)
     recommendation_id = Column(BigInteger, ForeignKey("recommendations.id"))
@@ -265,8 +272,6 @@ def get_contents() -> pd.DataFrame:
     """
     db = get_db_session()
     try:
-        # Content 모델의 모든 컬럼과 SearchQuery.query 컬럼 (별칭 'search_query_text')을 선택
-        # search_query_id가 없는 Content도 포함시키기 위해 outerjoin 사용
         query = db.query(
             Content, SearchQuery.query.label("search_query_text")
         ).outerjoin(SearchQuery, Content.search_query_id == SearchQuery.id)
@@ -274,14 +279,10 @@ def get_contents() -> pd.DataFrame:
         results = query.all()
 
         if not results:
-            # Content 테이블 스키마와 search_query_text 컬럼을 기반으로 빈 DataFrame 생성
             content_columns = [c.name for c in Content.__table__.columns]
             df_columns = content_columns + ["search_query_text"]
             return pd.DataFrame(columns=df_columns)
 
-        # 결과를 DataFrame으로 변환
-        # 각 Content 객체의 속성과 연관된 search_query_text를 결합
-        # Content 객체의 __dict__를 사용하되, SQLAlchemy 내부 상태(_sa_instance_state)는 제외
         contents_data = []
         for row_content, row_search_query_text in results:
             content_dict = {

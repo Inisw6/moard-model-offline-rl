@@ -5,8 +5,6 @@ from dataclasses import asdict, dataclass, field
 from enum import Enum
 from typing import Dict
 
-# 1. Enum 정의
-
 
 class Horizon(str, Enum):
     """투자 기간(Enum).
@@ -35,8 +33,6 @@ class AnalysisStyle(str, Enum):
     TECHNICAL = "technical"
     MIXED = "mixed"
 
-
-# 2. MBTI별 기본값
 
 MBTI_DEFAULTS: Dict[str, Dict] = {
     # 각 MBTI-타입별 투자 페르소나 (0~1 스케일)
@@ -221,7 +217,6 @@ MBTI_DEFAULTS: Dict[str, Dict] = {
 }
 
 
-# 안전장치 (존재하지 않는 MBTI 타입용)
 MBTI_FALLBACK = {
     "preferences": {"youtube": 0.5, "blog": 0.5, "news": 0.5},
     "risk_tolerance": 0.5,
@@ -233,9 +228,6 @@ MBTI_FALLBACK = {
     "dividend_preference": 0.5,
     "expert_reliance": 0.5,
 }
-
-
-# 3. PersonaConfig 데이터 클래스
 
 
 @dataclass
@@ -278,7 +270,6 @@ class PersonaConfig:
         default_factory=lambda: __import__("datetime").datetime.utcnow().isoformat()
     )
 
-    # ------------------------ Validation ---------------------------------- #
     def __post_init__(self) -> None:
         """입력값 유효성 검사. 0~1 범위 값/레벨 체크."""
         # 0~1 범위 체크
@@ -300,7 +291,6 @@ class PersonaConfig:
         if any(not 0.0 <= v <= 1.0 for v in self.preferences.values()):
             raise ValueError("preferences values must be 0–1")
 
-    # ----------------------- Helper methods ------------------------------- #
     def get_persona_id(self) -> str:
         """페르소나 고유 ID 문자열을 반환합니다.
 
@@ -334,9 +324,6 @@ class PersonaConfig:
         d["investment_horizon"] = Horizon(d["investment_horizon"])
         d["analysis_preference"] = AnalysisStyle(d["analysis_preference"])
         return cls(**d)
-
-
-# 4. 팩토리 함수
 
 
 def create_persona_from_user_data(

@@ -1,51 +1,49 @@
-import re
-import os
 import logging
-import pandas as pd
+import os
+import re
 from typing import List
+
+import pandas as pd
+from gensim.models.doc2vec import Doc2Vec, TaggedDocument
 
 from components.database.db_utils import get_contents
 
-from gensim.models.doc2vec import Doc2Vec, TaggedDocument
-
-# 추후 성능 최적화: 병렬처리 및 메모리 관리 필요
-
 
 def preprocess_text(text: str) -> List[str]:
-    """텍스트를 전처리하여 토큰 리스트로 반환합니다.
+    """텍스트에서 HTML 태그를 제거하고 공백 기준으로 토큰화합니다.
 
     Args:
-        text (str): 원본 텍스트. HTML 태그가 포함될 수 있습니다.
+        text (str): 원본 텍스트 (HTML 태그 포함 가능).
 
     Returns:
-        List[str]: HTML 태그가 제거되고 공백 기준으로 분할된 토큰 리스트.
+        List[str]: 전처리된 토큰 리스트.
     """
-    text = re.sub(r"<.*?>", "", text)
-    text = text.strip()
-    tokens = text.split()
-    return tokens
+    cleaned = re.sub(r"<.*?>", "", text).strip()
+    return cleaned.split()
 
 
 def build_tagged_documents(df: pd.DataFrame) -> List[TaggedDocument]:
-    """DataFrame의 각 행을 TaggedDocument 객체로 변환합니다.
+    """DataFrame의 'title' 및 'description' 컬럼을 TaggedDocument로 변환합니다.
 
     Args:
         df (pd.DataFrame): 'title' 및 'description' 컬럼을 포함하는 콘텐츠 DataFrame.
 
     Returns:
-        List[TaggedDocument]: 각 행마다 전처리된 토큰과 태그(문서 인덱스)를 가진 TaggedDocument 리스트.
+        List[TaggedDocument]: 각 행마다 토큰과 태그(문서 인덱스)를 가진 리스트.
 
     Raises:
-        KeyError: 'title' 또는 'description' 컬럼이 DataFrame에 없을 경우 발생.
+        KeyError: 'title' 또는 'description' 컬럼이 없을 경우.
     """
+    if "title" not in df.columns or "description" not in df.columns:
+        missing = {"title", "description"} - set(df.columns)
+        raise KeyError(f"필수 컬럼 누락: {missing}")
+
     documents: List[TaggedDocument] = []
     for idx, row in df.iterrows():
-        title = str(row.get("title") or "")
-        description = str(row.get("description") or "")
-        raw_text = f"{title} {description}"
-        tokens = preprocess_text(raw_text)
-        tag = [str(idx)]
-        documents.append(TaggedDocument(words=tokens, tags=tag))
+        title = str(row["title"] or "")
+        description = str(row["description"] or "")
+        tokens = preprocess_text(f"{title} {description}")
+        documents.append(TaggedDocument(words=tokens, tags=[str(idx)]))
     return documents
 
 
@@ -57,39 +55,42 @@ def train_and_save(
     epochs: int = 40,
     save_path: str = "models/doc2vec.model",
 ) -> None:
-    """Doc2Vec 모델을 학습하고 파일로 저장합니다.
+    """Doc2Vec 모델을 학습하고 지정 경로에 저장합니다.
 
     Args:
         documents (List[TaggedDocument]): 학습에 사용할 TaggedDocument 리스트.
-        vector_size (int): 임베딩 벡터 차원 (기본값 300).
-        window (int): 컨텍스트 윈도우 크기 (기본값 5).
-        min_count (int): 단어 최소 빈도 (기본값 2).
-        epochs (int): 학습 반복 횟수 (기본값 40).
-        save_path (str): 모델 저장 경로. 디렉토리가 없으면 생성합니다.
+        vector_size (int): 임베딩 벡터 차원. 기본값 300.
+        window (int): 컨텍스트 윈도우 크기. 기본값 5.
+        min_count (int): 단어 최소 빈도. 기본값 2.
+        epochs (int): 학습 반복 횟수. 기본값 40.
+        save_path (str): 모델 파일 저장 경로.
 
     Raises:
-        OSError: 디렉토리 생성 또는 모델 저장에 실패할 경우.
-        ValueError: 입력 문서 리스트가 비어 있거나 파라미터가 잘못된 경우.
+        ValueError: documents가 비어 있거나 파라미터가 비정상적일 경우.
+        OSError: 디렉토리 생성 또는 파일 저장 실패 시.
     """
+    if not documents:
+        raise ValueError("학습에 사용할 TaggedDocument 리스트가 비어 있습니다.")
+
     model = Doc2Vec(
         vector_size=vector_size,
         window=window,
         min_count=min_count,
         workers=os.cpu_count() or 4,
         epochs=epochs,
-        dm=1,  # 1 = PV-DM, 0 = PV-DBOW
+        dm=1,
         seed=42,
     )
 
     model.build_vocab(documents)
     model.train(documents, total_examples=model.corpus_count, epochs=model.epochs)
 
-    directory = os.path.dirname(save_path)
-    if directory:
-        os.makedirs(directory, exist_ok=True)
+    dirname = os.path.dirname(save_path)
+    if dirname:
+        os.makedirs(dirname, exist_ok=True)
 
     model.save(save_path)
-    logging.info(f"Doc2Vec 모델이 '{save_path}'에 저장되었습니다.")
+    logging.info("Doc2Vec 모델을 '%s'에 저장했습니다.", save_path)
 
 
 if __name__ == "__main__":
@@ -97,17 +98,14 @@ if __name__ == "__main__":
         level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s"
     )
 
-    # 1) 콘텐츠 데이터 로드
     try:
         df = get_contents()
     except Exception as e:
-        logging.error(f"get_contents 호출 중 예외 발생: {e}")
+        logging.error("get_contents() 호출 중 오류: %s", e)
         raise
 
     if df.empty:
-        logging.warning(
-            "get_contents()로 불러온 데이터프레임이 비어 있습니다. 데이터 확인하세요."
-        )
+        logging.warning("불러온 콘텐츠 DataFrame이 비어 있습니다.")
     else:
         try:
             docs = build_tagged_documents(df)
@@ -120,5 +118,5 @@ if __name__ == "__main__":
                 save_path="models/doc2vec.model",
             )
         except Exception as e:
-            logging.error(f"모델 학습 또는 저장 중 예외 발생: {e}")
+            logging.error("모델 학습 또는 저장 중 오류: %s", e)
             raise

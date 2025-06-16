@@ -5,17 +5,13 @@ import torch.nn as nn
 class DuelingQNetwork(nn.Module):
     """Dueling 구조의 Q-Value 예측 네트워크.
 
+    사용자 임베딩과 콘텐츠 임베딩을 결합해 Q-value를 추정하며,
+    Value stream과 Advantage stream을 분리하여 계산합니다.
+
     Args:
         user_dim (int): 사용자 임베딩 벡터 차원.
         content_dim (int): 콘텐츠 임베딩 벡터 차원.
-        hidden_dim (int, optional): 은닉층 크기. 기본값은 128.
-
-    Input:
-        user (torch.Tensor): [batch_size, user_dim]
-        content (torch.Tensor): [batch_size, content_dim]
-
-    Output:
-        torch.Tensor: [batch_size, 1] Q-value
+        hidden_dim (int, optional): 은닉층 크기. Defaults to 128.
     """
 
     def __init__(self, user_dim: int, content_dim: int, hidden_dim: int = 128) -> None:
@@ -63,9 +59,9 @@ class DuelingQNetwork(nn.Module):
         Returns:
             torch.Tensor: [batch_size, 1] Q-value
         """
-        x = torch.cat([user, content], dim=-1)  # 입력 벡터 결합
-        h = self.shared(x)  # 공유 네트워크 통과
-        v = self.value_stream(h)  # Value stream 결과
-        a = self.adv_stream(h)  # Advantage stream 결과
+        x = torch.cat([user, content], dim=-1)
+        h = self.shared(x)
+        v = self.value_stream(h)
+        a = self.adv_stream(h)
         # Dueling 구조의 Q-value 계산
         return v + (a - a.mean(dim=0, keepdim=True))

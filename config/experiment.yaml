@@ -1,68 +1,3 @@
-env:
-  type: rec_env
-  params:
-    max_steps: 10
-    top_k: 6
-
-response_simulator:
-  # type: random # 또는 llm
-  # params: {}
-  type: random
-  # params:
-  #   # 시뮬레이션 페르소나 설정 (1-100중 선택, null이면 랜덤)
-  #   persona_id: 5
-  #   # 페르소나 및 LLM 응답 정보 출력 여부
-  #   debug: true
-  #   # LLM 클라이언트 설정 (LLMResponseSimulator 사용 시에만 필요)
-  #   llm_simulator:
-  #     params:
-  #       # LLM 제공자 설정
-  #       provider: "openrouter"  # 'ollama', 'openai', 'openrouter' 중 선택
-  #       model: "deepseek/deepseek-r1-0528-qwen3-8b:free"
-  #       # API 설정
-  #       api_base: "https://openrouter.ai/api/v1" 
-  #       api_key: null  # OpenAI/OpenRouter API 키 (필요한 경우)
-  #       # 생성 파라미터
-  #       temperature: 0.7
-  #       top_p: 0.9
-  #       max_tokens: 1000
-  #       timeout: 30
-  #       debug: true
-
-agent:
-  type: dueling_dqn
-  params:
-    lr: 0.001
-    batch_size: 32
-    eps_start: 1.0
-    eps_min: 0.05
-    eps_decay: 0.995
-    gamma: 0.99
-    update_freq: 3
-    # 'mse' 또는 'smooth_l1' 중 선택
-    loss_type: "smooth_l1"  
-
-embedder:
-  type: simple_concat
-  params:
-    user_embedder:
-      type: simple_user
-      params:
-        user_dim: 30
-    content_embedder:
-      type: simple_content
-      params:
-        content_dim: 5
-
-candidate_generator:
-  type: query
-  params:
-    max_count_by_content: 24
-
-reward_fn:
-  type: default
-  params: {}
-
 experiment:
   experiment_name: "dqn_base"
   total_episodes: 10
@@ -73,5 +8,71 @@ experiment:
   episode_log_path: "data/logs/{experiment_name}/seed_{seed}/episodes.csv"
   model_save_dir: "data/models/{experiment_name}/seed_{seed}"
 
+env:
+  type: rec_env
+  params:
+    max_steps: 10
+    top_k: 6
+
+agent:
+  # dqn, dueling_dqn
+  type: dueling_dqn
+  params:
+    lr: 0.001
+    batch_size: 32
+    eps_start: 1.0
+    eps_min: 0.05
+    eps_decay: 0.995
+    gamma: 0.99
+    update_freq: 3
+    # 'mse', 'smooth_l1'
+    loss_type: "smooth_l1" 
+
 replay:
   capacity: 10000
+
+embedder:
+  type: simple_concat
+  params:
+    user_embedder:
+      # weighted_user(300), simple(30)
+      type: weighted_user
+      params:
+        user_dim: 300
+    content_embedder:
+    # doc2vec_content(300), sbert(702), simple(5)
+      type: doc2vec_content
+      params:
+        content_dim: 300
+
+candidate_generator:
+  type: query
+  params:
+    max_count_by_content: 24
+
+response_simulator:
+  # random, llm
+  type: llm
+  params:
+    # 시뮬레이션 페르소나 설정 (1-100중 선택, null이면 랜덤)
+    persona_id: 5
+    # 페르소나 및 LLM 응답 정보 출력 여부
+    debug: true
+    # LLM 클라이언트 설정 (LLMResponseSimulator 사용 시에만 필요)
+    llm_simulator:
+      params:
+        # LLM 제공자 설정: 'ollama', 'openai', 'openrouter' 중 선택
+        provider: "openrouter"
+        model: "deepseek/deepseek-r1-0528-qwen3-8b:free"
+        # API 설정
+        api_base: "https://openrouter.ai/api/v1" 
+        api_key: ""
+        temperature: 0.7
+        top_p: 0.9
+        max_tokens: 1000
+        timeout: 30
+        debug: true
+
+reward_fn:
+  type: default
+  params: {}

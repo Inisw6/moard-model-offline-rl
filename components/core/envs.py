@@ -4,30 +4,29 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 import gymnasium as gym
-from gymnasium import spaces
 import numpy as np
 import pandas as pd
+from gymnasium import spaces
 
 from components.core.base import BaseEnv
 from components.registry import register
-from components.simulation.simulators import BaseResponseSimulator
+from components.simulation.random_simulator import BaseResponseSimulator
 
 
 @register("rec_env")
 class RecEnv(gym.Env, BaseEnv):
-    """추천 환경(RecEnv).
+    """추천 환경 (RecEnv) 클래스.
 
-    Gymnasium과 사용자 정의 BaseEnv를 함께 상속하여,
-    RL 기반 추천 시스템 시뮬레이션을 위한 환경을 제공합니다.
+    Gymnasium과 BaseEnv를 상속하여 RL 기반 추천 시스템 시뮬레이션을 제공합니다.
 
     Attributes:
-        max_steps (int): 에피소드 당 최대 추천 횟수.
+        max_steps (int): 에피소드 당 최대 스텝 수.
         top_k (int): 한 스텝에서 추천할 콘텐츠 개수.
         embedder: 사용자/콘텐츠 임베딩 객체.
         candidate_generator: 추천 후보군 생성 객체.
         reward_fn: 보상 함수 객체.
         response_simulator (BaseResponseSimulator): 사용자 반응 시뮬레이터.
-        step_count (int): 에피소드 내 현재 스텝 카운트.
+        step_count (int): 현재 스텝 카운터.
     """
 
     def __init__(
@@ -60,31 +59,25 @@ class RecEnv(gym.Env, BaseEnv):
             debug (bool, optional): 디버깅 모드 활성화 여부.
         """
         super().__init__()
-        # 인자 없으면 예외 발생
         assert embedder is not None, "Embedder must be provided"
         assert candidate_generator is not None, "Candidate generator must be provided"
         assert reward_fn is not None, "Reward function must be provided"
         assert response_simulator is not None, "Response simulator must be provided"
 
-        # 속성 설정
         self.max_steps = max_steps
         self.top_k = top_k
         self.embedder = embedder
         self.candidate_generator = candidate_generator
         self.reward_fn = reward_fn
-        self.current_query = None
         self.response_simulator = response_simulator
+        self.current_query = None
         self.step_count = 0
 
-        # DB에서 DataFrame 로드 -> 주입받는 방식으로 변경
         self.all_users_df = users_df
-        self.all_user_logs_df = logs_with_type_df  # 사전 병합된 로그 사용
+        self.all_user_logs_df = logs_with_type_df
         self.all_contents_df = contents_df
 
-        # 사용자 정보 초기화
         self._init_user(user_id)
-
-        # observation / action space 초기화
         self._init_spaces()
 
     def _init_user(self, user_id: Optional[int]) -> None:
@@ -94,24 +87,48 @@ class RecEnv(gym.Env, BaseEnv):
             user_id (Optional[int]): 환경에 할당할 사용자 ID.
         """
         self.current_user_original_logs_df = pd.DataFrame()
-        self.current_session_simulated_logs = []
+        self.current_session_simulated_logs: List[Dict[str, Any]] = []
 
-        if user_id is None:
-            if not self.all_users_df.empty:
-                self.current_user_id = self.all_users_df.iloc[0]["id"]
-            else:
-                self.current_user_id = -1
-                logging.warning("No users found in DB. Using dummy user_id = -1.")
+        if user_id is None and not self.all_users_df.empty:
+            self.current_user_id = int(self.all_users_df.iloc[0]["id"])
         else:
-            self.current_user_id = user_id
+            self.current_user_id = user_id if user_id is not None else -1
 
         if self.current_user_id != -1 and not self.all_users_df.empty:
-            series = self.all_users_df[self.all_users_df["id"] == self.current_user_id]
-            if not series.empty:
-                self.current_user_info = series.iloc[0].to_dict()
+            df = self.all_users_df[self.all_users_df["id"] == self.current_user_id]
+            if not df.empty:
+                self.current_user_info = df.iloc[0].to_dict()
             else:
                 logging.warning(
-                    "User ID %d not found. Using dummy user_info.", self.current_user_id
+                    "User ID %d not found. Using dummy_user_not_found.",
+                    self.current_user_id,
+                )
+                self.current_user_info = {
+                    "id": self.current_user_id,
+                    "uuid": "dummy_user_not_found",
+                }
+        else:
+            self.current_user_info = {"id": -1, "uuid": "dummy_user"}
+
+    def _set_current_user_info(self, user_id: Optional[int]) -> None:
+        """사용자 ID를 기반으로 current_user_id와 current_user_info를 초기화합니다.
+
+        Args:
+            user_id (Optional[int]): 환경에 할당할 사용자 ID.
+        """
+        if user_id is None and not self.all_users_df.empty:
+            self.current_user_id = int(self.all_users_df.iloc[0]["id"])
+        else:
+            self.current_user_id = user_id if user_id is not None else -1
+
+        if self.current_user_id != -1 and not self.all_users_df.empty:
+            df = self.all_users_df[self.all_users_df["id"] == self.current_user_id]
+            if not df.empty:
+                self.current_user_info = df.iloc[0].to_dict()
+            else:
+                logging.warning(
+                    "User ID %d not found. Using dummy_user_not_found.",
+                    self.current_user_id,
                 )
                 self.current_user_info = {
                     "id": self.current_user_id,
@@ -124,171 +141,98 @@ class RecEnv(gym.Env, BaseEnv):
         """observation_space와 action_space를 정의합니다."""
         state_dim = self.embedder.output_dim()
         self._observation_space = spaces.Box(
-            low=-np.inf, high=np.inf, shape=(state_dim,), dtype=np.float32
+            low=-np.inf,
+            high=np.inf,
+            shape=(state_dim,),
+            dtype=np.float32,
         )
-
-        MAX_CANDIDATE_INDEX = 24
-        self._action_space = spaces.Tuple(
+        MAX_INDEX = 24
+        single = spaces.Tuple(
             [
-                spaces.Tuple(
-                    (
-                        spaces.Discrete(len(self.embedder.content_types)),
-                        spaces.Discrete(MAX_CANDIDATE_INDEX),
-                    )
-                )
-                for _ in range(self.top_k)
+                spaces.Discrete(len(self.embedder.content_types)),
+                spaces.Discrete(MAX_INDEX),
             ]
         )
-
-    def _set_current_user_info(self, user_id: Optional[int]) -> None:
-        """사용자 ID를 기반으로 환경 내 현재 사용자 정보를 설정합니다.
-
-        Args:
-            user_id (Optional[int]): 환경에 할당할 사용자 ID.
-        """
-        if user_id is None:
-            if not self.all_users_df.empty:
-                self.current_user_id = self.all_users_df.iloc[0]["id"]
-            else:
-                self.current_user_id = -1
-                logging.warning("No users found in DB. Using dummy user_id = -1.")
-        else:
-            self.current_user_id = user_id
-
-        if self.current_user_id != -1 and not self.all_users_df.empty:
-            user_info_series = self.all_users_df[
-                self.all_users_df["id"] == self.current_user_id
-            ]
-            if not user_info_series.empty:
-                self.current_user_info = user_info_series.iloc[0].to_dict()
-            else:
-                logging.warning(
-                    "User ID %d not found. Using dummy user_info.", self.current_user_id
-                )
-                self.current_user_info = {
-                    "id": self.current_user_id,
-                    "uuid": "dummy_user_not_found",
-                }
-        elif self.current_user_id == -1:
-            self.current_user_info = {"id": -1, "uuid": "dummy_user"}
+        self._action_space = spaces.Tuple([single for _ in range(self.top_k)])
 
     def _merge_logs_with_content_type(
-        self, base_logs_df: pd.DataFrame, simulated_logs_list: List[Dict]
+        self,
+        base_logs_df: pd.DataFrame,
+        simulated_logs_list: List[Dict[str, Any]],
     ) -> pd.DataFrame:
-        """실제 로그와 시뮬레이션 로그를 병합합니다. (콘텐츠 타입 병합은 이미 완료됨)
-
-        Args:
-            base_logs_df (pd.DataFrame): 원본 사용자 로그.
-            simulated_logs_list (List[Dict]): 현재 에피소드의 시뮬레이션 로그 리스트.
-
-        Returns:
-            pd.DataFrame: 병합된 전체 로그.
-        """
+        """원본 로그와 시뮬레이션 로그를 콘텐츠 타입별로 병합하여 반환합니다."""
         if not simulated_logs_list:
             return base_logs_df
-
-        sim_logs_df = pd.DataFrame(simulated_logs_list)
-        if sim_logs_df.empty:
+        sim_df = pd.DataFrame(simulated_logs_list)
+        if sim_df.empty:
             return base_logs_df
-
-        # 신규 시뮬레이션 로그에만 type 정보 추가 (효율화)
         if not self.all_contents_df.empty:
-            sim_logs_df = pd.merge(
-                sim_logs_df,
+            sim_df = sim_df.merge(
                 self.all_contents_df[["id", "type"]].rename(
                     columns={"id": "content_id", "type": "content_db_type"}
                 ),
                 on="content_id",
                 how="left",
             )
-            # 'content_actual_type'이 없을 경우를 대비해 추가
-            if "content_actual_type" not in sim_logs_df.columns:
-                sim_logs_df["content_actual_type"] = np.nan
-
-            sim_logs_df["content_actual_type"] = sim_logs_df[
-                "content_actual_type"
-            ].fillna(sim_logs_df["content_db_type"])
-            sim_logs_df.drop(columns=["content_db_type"], inplace=True)
-
+            if "content_actual_type" not in sim_df:
+                sim_df["content_actual_type"] = np.nan
+            sim_df["content_actual_type"] = sim_df["content_actual_type"].fillna(
+                sim_df["content_db_type"]
+            )
+            sim_df.drop(columns=["content_db_type"], inplace=True)
         if base_logs_df.empty:
-            return sim_logs_df
-
-        return pd.concat([base_logs_df, sim_logs_df], ignore_index=True)
+            return sim_df
+        return pd.concat([base_logs_df, sim_df], ignore_index=True)
 
     def _get_user_data_for_embedding(
-        self, base_logs_df: pd.DataFrame, simulated_logs_list: List[Dict]
-    ) -> Dict:
-        """사용자 임베딩에 필요한 dict 데이터를 생성합니다.
-
-        Args:
-            base_logs_df (pd.DataFrame): 원본 사용자 로그.
-            simulated_logs_list (List[Dict]): 시뮬레이션 로그 리스트.
-
-        Returns:
-            Dict: embed_user 함수 입력 포맷의 사용자 데이터.
-        """
-        logs_df = self._merge_logs_with_content_type(base_logs_df, simulated_logs_list)
-        processed_logs = logs_df.to_dict("records") if not logs_df.empty else []
+        self,
+        base_logs_df: pd.DataFrame,
+        simulated_logs_list: List[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        """임베딩을 위한 사용자 데이터를 생성합니다."""
+        merged_df = self._merge_logs_with_content_type(
+            base_logs_df, simulated_logs_list
+        )
+        records = merged_df.to_dict("records") if not merged_df.empty else []
         return {
             "user_info": self.current_user_info,
-            "recent_logs": processed_logs,
+            "recent_logs": records,
             "current_time": datetime.now(timezone.utc),
         }
 
     def _select_contents_from_action(
-        self, cand_dict: Dict, action_list: List[Tuple[str, int]]
-    ) -> List[Dict]:
-        """액션 리스트에서 실제 추천할 콘텐츠들을 추출합니다.
-
-        Args:
-            cand_dict (Dict): 추천 후보군 {타입: [콘텐츠, ...]}.
-            action_list (List[Tuple[str, int]]): [(콘텐츠 타입, 후보 인덱스), ...] 리스트.
-
-        Returns:
-            List[Dict]: 선택된 콘텐츠 리스트.
-        """
-        selected_contents = []
-        for ctype, cand_idx in action_list:
-            if ctype in cand_dict and len(cand_dict[ctype]) > cand_idx:
-                selected_contents.append(cand_dict[ctype][cand_idx])
+        self,
+        cand_dict: Dict[str, List[Dict[str, Any]]],
+        action_list: List[Tuple[str, int]],
+    ) -> List[Dict[str, Any]]:
+        """행동 리스트에 따라 추천할 콘텐츠를 선택합니다."""
+        selected_contents: List[Dict[str, Any]] = []
+        for ctype, idx in action_list:
+            items = cand_dict.get(ctype, [])
+            if 0 <= idx < len(items):
+                selected_contents.append(items[idx])
             else:
                 logging.warning(
-                    "Invalid action (%s, %d). Candidate not found.", ctype, cand_idx
+                    "Invalid action (%s, %d): Candidate not found.", ctype, idx
                 )
         return selected_contents
 
     def _create_simulated_log_entry(
-        self, content: Dict, event_type: str, dwell_time: Optional[int] = None
-    ) -> Dict:
-        """시뮬레이션용 로그 엔트리를 생성합니다.
-
-        Args:
-            content (Dict): 추천된 콘텐츠 정보.
-            event_type (str): "VIEW" 또는 "CLICK".
-            dwell_time (Optional[int], optional): None이면 VIEW→0, CLICK→랜덤(60~600).
-
-        Returns:
-            Dict: user_logs 포맷의 단일 로그 엔트리.
-        """
-        # 1) 콘텐츠 ID/타입 조회 (한 번만)
+        self,
+        content: Dict[str, Any],
+        event_type: str,
+        dwell_time: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """시뮬레이션용 단일 로그 엔트리를 생성합니다."""
         content_id = content["id"]
         content_type = content["type"]
-
-        # 2) 클릭 여부 플래그
         is_click = event_type == "CLICK"
-
-        # 3) 체류 시간 결정
         if dwell_time is None:
             time_seconds = random.randint(60, 600) if is_click else 0
         else:
             time_seconds = dwell_time
-
-        # 4) 클릭 확률 비율 산출
         ratio = 1.0 if is_click else 0.1 + 0.8 * random.random()
-
-        # 5) 타임스탬프
         timestamp = datetime.now(timezone.utc).isoformat()
-
         return {
             "user_id": self.current_user_id,
             "content_id": content_id,
@@ -301,90 +245,53 @@ class RecEnv(gym.Env, BaseEnv):
 
     @property
     def observation_space(self) -> spaces.Box:
-        """관찰(observation) 벡터의 공간 분포를 반환합니다.
-
-        Returns:
-            spaces.Box: 상태 공간 객체.
-        """
+        """관찰(observation) 벡터의 공간 분포를 반환합니다."""
         return self._observation_space
 
     @property
     def action_space(self) -> spaces.Tuple:
-        """행동(action) 공간 분포를 반환합니다.
-
-        Returns:
-            spaces.Tuple: 액션 공간 객체.
-        """
+        """행동(action) 공간 분포를 반환합니다."""
         return self._action_space
 
     def reset(
-        self, seed: Optional[int] = None, options: Optional[Dict] = None
-    ) -> Tuple[np.ndarray, Dict]:
-        """환경을 초기화합니다. (에피소드 시작)
-
-        Args:
-            seed (Optional[int], optional): 랜덤 시드.
-            options (Optional[Dict], optional): 추가 옵션.
-
-        Returns:
-            Tuple[np.ndarray, Dict]: 초기 상태 벡터와 기타 정보.
-        """
-        if options and "query" in options:
-            self.current_query = options["query"]
+        self,
+        seed: Optional[int] = None,
+        options: Optional[Dict[str, Any]] = None,
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
+        """환경을 초기화합니다. (에피소드 시작)"""
+        opts = options or {}
+        if "query" in opts:
+            self.current_query = opts["query"]
         else:
             self.current_query = None
-
         self.step_count = 0
         self.current_session_simulated_logs.clear()
-        self._set_current_user_info(options.get("user_id", None))
-
-        # self.current_user_original_logs_df는 사전 병합된 all_user_logs_df에서 필터링
+        self._set_current_user_info(opts.get("user_id"))
         self.current_user_original_logs_df = self.all_user_logs_df[
             self.all_user_logs_df["user_id"] == self.current_user_id
         ].copy()
-
-        # Generate initial state
-        user_initial_data = self._get_user_data_for_embedding(
+        user_initial = self._get_user_data_for_embedding(
             self.current_user_original_logs_df, []
         )
-        state = self.embedder.embed_user(user_initial_data)
+        state = self.embedder.embed_user(user_initial)
         return state, {}
 
     def step(
-        self, action_list: List[Tuple[str, int]]
-    ) -> tuple[np.ndarray, float, bool, bool, Dict]:
-        """환경에 액션 리스트(top-k 추천)를 적용하고, 다음 상태 및 보상 등을 반환합니다.
-
-        Args:
-            action_list (List[Tuple[str, int]]): [(콘텐츠 타입, 후보 인덱스), ...] top-k 개의 액션.
-
-        Returns:
-            Tuple:
-                - 다음 상태 (np.ndarray)
-                - 보상 (float)
-                - done (bool): 에피소드 종료 여부
-                - truncated (bool): 트렁케이트 여부(사용 안함)
-                - info (Dict): 기타 정보
-        """
+        self,
+        action_list: List[Tuple[str, int]],
+    ) -> Tuple[np.ndarray, float, bool, bool, Dict[str, Any]]:
+        """한 스텝 진행: 추천 → 시뮬레이션 → 보상 → 다음 상태 반환."""
         self.step_count += 1
-
-        # 1) 현재 사용자 상태(user_state)를 구한다.
-        user_current_data = self._get_user_data_for_embedding(
+        user_data = self._get_user_data_for_embedding(
             self.current_user_original_logs_df,
             self.current_session_simulated_logs,
         )
-        user_state = self.embedder.embed_user(user_current_data)
-
-        # 2) 후보 생성
+        user_state = self.embedder.embed_user(user_data)
         cand_dict = self.candidate_generator.get_candidates(self.current_query)
-
-        # 3) 액션 리스트에 따라 실제 추천 콘텐츠들 선택 (top-k)
         selected_contents = self._select_contents_from_action(cand_dict, action_list)
         if not selected_contents:
             logging.warning("No valid contents selected from actions %s", action_list)
             return user_state, 0.0, True, False, {}
-
-        # 4) 사용자 반응 시뮬레이션
         sim_context = {
             "step_count": self.step_count,
             "session_logs": self.current_session_simulated_logs,
@@ -392,52 +299,37 @@ class RecEnv(gym.Env, BaseEnv):
         all_responses = self.response_simulator.simulate_responses(
             selected_contents, sim_context
         )
-
-        # 5) 보상 계산: 모든 응답을 사용하여 보상 계산
-        total_reward, individual_reward_dic = (
+        total_reward, individual_reward_dict = (
             self.reward_fn.calculate_from_topk_responses(all_responses=all_responses)
         )
-
-        # 6) 시뮬레이션 로그 생성 및 추가 (클릭한 콘텐츠들만)
-        for response in all_responses:
-            if response["clicked"]:
-                # 클릭한 콘텐츠 찾기
-                clicked_content = None
-                for content in selected_contents:
-                    if content.get("id") == int(response["content_id"]):
-                        clicked_content = content
-                        break
-
-                if clicked_content:
-                    event_type = "CLICK"
-                    new_log_entry = self._create_simulated_log_entry(
-                        clicked_content, event_type, response["dwell_time"]
+        for resp in all_responses:
+            if resp.get("clicked"):
+                clicked = next(
+                    (
+                        c
+                        for c in selected_contents
+                        if c.get("id") == int(resp["content_id"])
+                    ),
+                    None,
+                )
+                if clicked:
+                    log_entry = self._create_simulated_log_entry(
+                        clicked, event_type="CLICK", dwell_time=resp.get("dwell_time")
                     )
-                    self.current_session_simulated_logs.append(new_log_entry)
-
-        # 7) 다음 상태 계산
-        user_next_data = self._get_user_data_for_embedding(
-            self.current_user_original_logs_df,
-            self.current_session_simulated_logs,
+                    self.current_session_simulated_logs.append(log_entry)
+        next_user_data = self._get_user_data_for_embedding(
+            self.current_user_original_logs_df, self.current_session_simulated_logs
         )
-        next_state = self.embedder.embed_user(user_next_data)
-
-        # 8) 에피소드 종료 판단
+        next_state = self.embedder.embed_user(next_user_data)
         done = self.step_count >= self.max_steps
-
-        # 9) 최종 결과 반환
-        info = {
+        info: Dict[str, Any] = {
             "all_responses": all_responses,
             "selected_contents": selected_contents,
-            "total_clicks": sum(1 for r in all_responses if r["clicked"]),
-            "individual_rewards": individual_reward_dic,
+            "total_clicks": sum(1 for r in all_responses if r.get("clicked")),
+            "individual_rewards": individual_reward_dict,
         }
         return next_state, total_reward, done, False, info
 
     def get_candidates(self) -> Dict[str, List[Any]]:
-        """현 상태에서 추천 후보군을 반환합니다.
-
-        Returns:
-            Dict[str, List[Any]]: {타입: 후보 콘텐츠 리스트}
-        """
+        """현재 상태(쿼리)에 기반한 추천 후보군을 반환합니다."""
         return self.candidate_generator.get_candidates(self.current_query)

@@ -85,6 +85,9 @@ class RecEnv(gym.Env, BaseEnv):
 
         Args:
             user_id (Optional[int]): 환경에 할당할 사용자 ID.
+
+        Returns:
+            None
         """
         self.current_user_original_logs_df = pd.DataFrame()
         self.current_session_simulated_logs: List[Dict[str, Any]] = []
@@ -115,6 +118,9 @@ class RecEnv(gym.Env, BaseEnv):
 
         Args:
             user_id (Optional[int]): 환경에 할당할 사용자 ID.
+
+        Returns:
+            None
         """
         if user_id is None and not self.all_users_df.empty:
             self.current_user_id = int(self.all_users_df.iloc[0]["id"])
@@ -138,7 +144,11 @@ class RecEnv(gym.Env, BaseEnv):
             self.current_user_info = {"id": -1, "uuid": "dummy_user"}
 
     def _init_spaces(self) -> None:
-        """observation_space와 action_space를 정의합니다."""
+        """observation_space와 action_space를 정의합니다.
+
+        Returns:
+            None
+        """
         state_dim = self.embedder.output_dim()
         self._observation_space = spaces.Box(
             low=-np.inf,
@@ -160,7 +170,15 @@ class RecEnv(gym.Env, BaseEnv):
         base_logs_df: pd.DataFrame,
         simulated_logs_list: List[Dict[str, Any]],
     ) -> pd.DataFrame:
-        """원본 로그와 시뮬레이션 로그를 콘텐츠 타입별로 병합하여 반환합니다."""
+        """원본 로그와 시뮬레이션 로그를 콘텐츠 타입별로 병합하여 반환합니다.
+
+        Args:
+            base_logs_df (pd.DataFrame): 원본 로그 데이터프레임.
+            simulated_logs_list (List[Dict[str, Any]]): 시뮬레이션 로그 리스트.
+
+        Returns:
+            pd.DataFrame: 병합된 로그 데이터프레임.
+        """
         if not simulated_logs_list:
             return base_logs_df
         sim_df = pd.DataFrame(simulated_logs_list)
@@ -189,7 +207,15 @@ class RecEnv(gym.Env, BaseEnv):
         base_logs_df: pd.DataFrame,
         simulated_logs_list: List[Dict[str, Any]],
     ) -> Dict[str, Any]:
-        """임베딩을 위한 사용자 데이터를 생성합니다."""
+        """임베딩을 위한 사용자 데이터를 생성합니다.
+
+        Args:
+            base_logs_df (pd.DataFrame): 원본 로그 데이터프레임.
+            simulated_logs_list (List[Dict[str, Any]]): 시뮬레이션 로그 리스트.
+
+        Returns:
+            Dict[str, Any]: 임베딩에 사용할 사용자 데이터 딕셔너리.
+        """
         merged_df = self._merge_logs_with_content_type(
             base_logs_df, simulated_logs_list
         )
@@ -205,7 +231,15 @@ class RecEnv(gym.Env, BaseEnv):
         cand_dict: Dict[str, List[Dict[str, Any]]],
         action_list: List[Tuple[str, int]],
     ) -> List[Dict[str, Any]]:
-        """행동 리스트에 따라 추천할 콘텐츠를 선택합니다."""
+        """행동 리스트에 따라 추천할 콘텐츠를 선택합니다.
+
+        Args:
+            cand_dict (Dict[str, List[Dict[str, Any]]]): 타입별 후보 콘텐츠 딕셔너리.
+            action_list (List[Tuple[str, int]]): (콘텐츠 타입, 인덱스) 쌍 리스트.
+
+        Returns:
+            List[Dict[str, Any]]: 선택된 콘텐츠 리스트.
+        """
         selected_contents: List[Dict[str, Any]] = []
         for ctype, idx in action_list:
             items = cand_dict.get(ctype, [])
@@ -223,7 +257,16 @@ class RecEnv(gym.Env, BaseEnv):
         event_type: str,
         dwell_time: Optional[int] = None,
     ) -> Dict[str, Any]:
-        """시뮬레이션용 단일 로그 엔트리를 생성합니다."""
+        """시뮬레이션용 단일 로그 엔트리를 생성합니다.
+
+        Args:
+            content (Dict[str, Any]): 콘텐츠 정보 딕셔너리.
+            event_type (str): 이벤트 타입 (예: 'CLICK', 'VIEW').
+            dwell_time (Optional[int], optional): 체류 시간(초). None이면 랜덤 생성.
+
+        Returns:
+            Dict[str, Any]: 생성된 로그 엔트리.
+        """
         content_id = content["id"]
         content_type = content["type"]
         is_click = event_type == "CLICK"
@@ -245,12 +288,20 @@ class RecEnv(gym.Env, BaseEnv):
 
     @property
     def observation_space(self) -> spaces.Box:
-        """관찰(observation) 벡터의 공간 분포를 반환합니다."""
+        """관찰(observation) 벡터의 공간 분포를 반환합니다.
+
+        Returns:
+            spaces.Box: 관찰 공간(Box) 객체.
+        """
         return self._observation_space
 
     @property
     def action_space(self) -> spaces.Tuple:
-        """행동(action) 공간 분포를 반환합니다."""
+        """행동(action) 공간 분포를 반환합니다.
+
+        Returns:
+            spaces.Tuple: 행동 공간(Tuple) 객체.
+        """
         return self._action_space
 
     def reset(
@@ -258,7 +309,15 @@ class RecEnv(gym.Env, BaseEnv):
         seed: Optional[int] = None,
         options: Optional[Dict[str, Any]] = None,
     ) -> Tuple[np.ndarray, Dict[str, Any]]:
-        """환경을 초기화합니다. (에피소드 시작)"""
+        """환경을 초기화합니다. (에피소드 시작)
+
+        Args:
+            seed (Optional[int], optional): 랜덤 시드.
+            options (Optional[Dict[str, Any]], optional): 추가 옵션 (예: 쿼리, user_id 등).
+
+        Returns:
+            Tuple[np.ndarray, Dict[str, Any]]: 초기 상태 벡터와 추가 정보 딕셔너리.
+        """
         opts = options or {}
         if "query" in opts:
             self.current_query = opts["query"]
@@ -280,7 +339,14 @@ class RecEnv(gym.Env, BaseEnv):
         self,
         action_list: List[Tuple[str, int]],
     ) -> Tuple[np.ndarray, float, bool, bool, Dict[str, Any]]:
-        """한 스텝 진행: 추천 → 시뮬레이션 → 보상 → 다음 상태 반환."""
+        """한 스텝 진행: 추천 → 시뮬레이션 → 보상 → 다음 상태 반환.
+
+        Args:
+            action_list (List[Tuple[str, int]]): (콘텐츠 타입, 인덱스) 쌍 리스트.
+
+        Returns:
+            Tuple[np.ndarray, float, bool, bool, Dict[str, Any]]: (다음 상태, 보상, 종료 여부, 트렁케이트 여부, 추가 정보)
+        """
         self.step_count += 1
         user_data = self._get_user_data_for_embedding(
             self.current_user_original_logs_df,
@@ -331,5 +397,9 @@ class RecEnv(gym.Env, BaseEnv):
         return next_state, total_reward, done, False, info
 
     def get_candidates(self) -> Dict[str, List[Any]]:
-        """현재 상태(쿼리)에 기반한 추천 후보군을 반환합니다."""
+        """현재 상태(쿼리)에 기반한 추천 후보군을 반환합니다.
+
+        Returns:
+            Dict[str, List[Any]]: 타입별 추천 후보군 딕셔너리.
+        """
         return self.candidate_generator.get_candidates(self.current_query)

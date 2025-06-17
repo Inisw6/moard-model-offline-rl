@@ -15,7 +15,7 @@ from components.simulation.random_simulator import BaseResponseSimulator
 
 @register("rec_env")
 class RecEnv(gym.Env, BaseEnv):
-    """추천 환경 (RecEnv) 클래스.
+    """추천 환경 (RecEnv) 클래스입니다.
 
     Gymnasium과 BaseEnv를 상속하여 RL 기반 추천 시스템 시뮬레이션을 제공합니다.
 

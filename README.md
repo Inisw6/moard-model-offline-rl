@@ -6,6 +6,7 @@
 - 추상화와 레지스터리, config를 통한 실험 환경 제공
 - 다양한 시드에 대한 실험 자동화
 - 실험 결과 및 학습된 모델의 자동 저장
+<img width="867" alt="스크린샷 2025-06-17 오후 2 57 06" src="https://github.com/user-attachments/assets/1908696d-e0ab-4b0a-a9b5-f5541ffcd63c" />
 
 ## 환경
 - Python 3.10
